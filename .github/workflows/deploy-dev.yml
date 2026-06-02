@@ -19,15 +19,25 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
             cd ~/my-pern-app/CI-CD
-            echo "📂 Current directory: $(pwd)"
-            
-            # Pull latest code from dev branch
-            echo "📥 Pulling latest code from dev branch..."
+
+            # Stop the running app
+            pm2 stop todo-server || true
+
+            # Pull latest code
             git pull origin dev
-            
-            # Show current branch
-            echo "🌿 Current branch: $(git branch --show-current)"
-            
-            # List files
-            echo "📋 Files in repo:"
-            ls -la
+
+            # Install server dependencies
+            cd server
+            npm install
+
+            # Start the app
+            pm2 restart todo-server || pm2 start index.js --name todo-server
+            cd ..
+
+            # Build the React client
+            cd client
+            npm install
+            npm run build
+
+            # Show status
+            pm2 status
