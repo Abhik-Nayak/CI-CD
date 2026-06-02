@@ -18,7 +18,7 @@ jobs:
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
-            cd ~/CI-CD
+            cd ~/my-pern-app/CI-CD
             echo "📂 Current directory: $(pwd)"
             
             # Pull latest code from dev branch
