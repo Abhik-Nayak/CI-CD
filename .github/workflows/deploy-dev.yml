@@ -11,14 +11,23 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Test SSH Connection to EC2
+      - name: Deploy to EC2
         uses: appleboy/ssh-action@master
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
-            echo "✅ Successfully connected to EC2!"
-            whoami
-            pwd
+            cd ~/CI-CD
+            echo "📂 Current directory: $(pwd)"
+            
+            # Pull latest code from dev branch
+            echo "📥 Pulling latest code from dev branch..."
+            git pull origin dev
+            
+            # Show current branch
+            echo "🌿 Current branch: $(git branch --show-current)"
+            
+            # List files
+            echo "📋 Files in repo:"
             ls -la
