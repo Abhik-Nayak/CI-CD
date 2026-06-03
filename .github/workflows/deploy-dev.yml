@@ -23,7 +23,7 @@ jobs:
             # Install PM2 if not present
             command -v pm2 || sudo npm install -g pm2
 
-            cd ~/my-pern-app/CI-CD
+            cd ~/CI-CD
 
             # Stop the running app
             pm2 stop todo-server || true
