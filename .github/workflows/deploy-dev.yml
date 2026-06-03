@@ -20,8 +20,13 @@ jobs:
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
+            # Kill any process running on port 5000 and 5173
+            fuser -k 5000/tcp || true
+            fuser -k 5173/tcp || true
+
             cd ~/CI-CD
             git pull origin dev
-            cd server && npm install
-            cd ../client && npm install
-            cd .. && npm run dev
+            npm run install-all
+
+            # Start app in background so SSH session can exit
+            nohup npm run dev > ~/CI-CD/app.log 2>&1 &
