@@ -2,10 +2,16 @@
   "name": "pern-todo",
   "version": "1.0.0",
   "scripts": {
-    "server": "cd server && npm run dev",
-    "client": "cd client && npm run dev",
-    "install-all": "cd server && npm install && cd ../client && npm install",
-    "dev": "concurrently \"npm run server\" \"npm run client\""
+    "install-all": "npm install && cd server && npm install && cd ../client && npm install",
+    "start:backend": "cd server && npm start",
+    "start:frontend": "cd client && npm run dev",
+    "dev": "concurrently \"npm run start:backend\" \"npm run start:frontend\"",
+    "pm2:start": "pm2 start ecosystem.config.js",
+    "pm2:stop": "pm2 stop all",
+    "pm2:restart": "pm2 restart all",
+    "pm2:reload": "pm2 reload all",
+    "pm2:logs": "pm2 logs",
+    "pm2:monit": "pm2 monit"
   },
   "devDependencies": {
     "concurrently": "^9.0.0"

@@ -21,22 +21,16 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
             cd ~/CI-CD
-            
+
             echo "📥 Pulling latest code from dev branch..."
             git pull origin dev
 
-            echo "📦 Installing both frontend  & backend dependencies... "
+            echo "📦 Installing dependencies..."
             npm run install-all
 
-            echo "🛑 Stopping existing processes on port 5000 & 5173..."
-            fuser -k 5000/tcp || true
-            fuser -k 5173/tcp || true
-            sleep 2
+            mkdir -p ~/CI-CD/logs
 
-            echo "🚀 Starting frontend and backend...  Start app in background so SSH session can exit"
-            nohup npm run dev > ~/CI-CD/app.log 2>&1 &
-            cd ..
+            echo "🔄 Restarting apps with PM2..."
+            pm2 restart ecosystem.config.js || pm2 start ecosystem.config.js
 
             echo "✅ Deployment complete!"
-
-            # Important: Without nohup ... &, the npm run dev command would run in the foreground and the GitHub Action would wait forever until it times out (6 hours). That's why we need to run it in the background.
