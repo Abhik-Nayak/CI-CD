@@ -28,9 +28,12 @@ jobs:
             echo "📦 Installing dependencies..."
             npm run install-all
 
+            echo "🔨 Building React app..."
+            cd client && npm run build && cd ..
+
             mkdir -p ~/CI-CD/logs
 
-            echo "🔄 Restarting apps with PM2..."
+            echo "🔄 Restarting backend with PM2..."
             pm2 restart ecosystem.config.js || pm2 start ecosystem.config.js
 
             echo "✅ Deployment complete!"

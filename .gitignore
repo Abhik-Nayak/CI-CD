@@ -1,4 +1,6 @@
 node_modules
 .env
 dist
+server/public
+CODE-REVIEW
 # ecosystem.local.config.js

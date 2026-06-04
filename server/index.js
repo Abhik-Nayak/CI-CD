@@ -1,5 +1,6 @@
 require("dotenv").config();
 const express = require("express");
+const path = require("path");
 const cors = require("cors");
 const pool = require("./db");
 const todoRoutes = require("./routes/todos");
@@ -14,7 +15,7 @@ app.use(express.json());
 
 app.use("/api/todos", todoRoutes);
 
-app.get("/", async (req, res) => {
+app.get("/api/health", async (req, res) => {
   const uptime = process.uptime();
   const memory = process.memoryUsage();
 
@@ -43,6 +44,12 @@ app.get("/", async (req, res) => {
     },
     nodeVersion: process.version,
   });
+});
+
+// Serve React built files (must be AFTER all /api routes)
+app.use(express.static(path.join(__dirname, "public")));
+app.get("*", (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "index.html"));
 });
 
 async function start() {

@@ -1,5 +1,6 @@
-// Local testing config — same as ecosystem.config.js but with Windows paths
-// DO NOT commit this file
+// Local testing config for PM2
+// Run: cd client && npm run build (first time)
+// Then: pm2 start ecosystem.local.config.js
 module.exports = {
   apps: [
     {
@@ -7,17 +8,7 @@ module.exports = {
       script: 'index.js',
       cwd: './server',
       env: {
-        NODE_ENV: 'development'
-      },
-      restart_delay: 4000
-    },
-    {
-      name: 'frontend',
-      script: 'node_modules/vite/bin/vite.js',
-      args: '--host 0.0.0.0',
-      cwd: './client',
-      env: {
-        NODE_ENV: 'development'
+        NODE_ENV: 'production'
       },
       restart_delay: 4000
     }

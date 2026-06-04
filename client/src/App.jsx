@@ -47,7 +47,7 @@ function App() {
 
   return (
     <div className="app">
-      <h1>Todo App1</h1>
+      <h1>Todo App2</h1>
       <TodoForm
         onSubmit={addTodo}
         editingTodo={editingTodo}
