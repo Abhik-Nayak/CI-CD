@@ -28,8 +28,9 @@ jobs:
             echo "📦 Installing both frontend  & backend dependencies... "
             npm run install-all
 
-            echo "🛑 Stopping existing processes..."
-            pkill -f "node" || true
+            echo "🛑 Stopping existing processes on port 5000 & 5173..."
+            fuser -k 5000/tcp || true
+            fuser -k 5173/tcp || true
             sleep 2
 
             echo "🚀 Starting frontend and backend...  Start app in background so SSH session can exit"
