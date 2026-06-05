@@ -14,7 +14,11 @@ const PORT = process.env.PORT;
 
 
 app.use(compression());
-app.use(helmet());
+app.use(
+  helmet({
+    contentSecurityPolicy: false,
+  })
+);
 app.use(cors());
 app.use(express.json());
 
