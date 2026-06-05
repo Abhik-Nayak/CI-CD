@@ -2,6 +2,9 @@ require("dotenv").config();
 const express = require("express");
 const path = require("path");
 const cors = require("cors");
+const compression = require("compression");
+const helmet = require("helmet");
+const rateLimit = require("express-rate-limit");
 const pool = require("./db");
 const todoRoutes = require("./routes/todos");
 
@@ -10,8 +13,19 @@ const app = express();
 const PORT = process.env.PORT;
 
 
+app.use(compression());
+app.use(helmet());
 app.use(cors());
 app.use(express.json());
+
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+app.use("/api", apiLimiter);
 
 app.use("/api/todos", todoRoutes);
 

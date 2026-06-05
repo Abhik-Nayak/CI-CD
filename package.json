@@ -7,8 +7,8 @@
     "start:frontend": "cd client && npm run dev",
     "dev": "concurrently \"npm run start:backend\" \"npm run start:frontend\"",
     "pm2:start": "pm2 start ecosystem.config.js",
+    "pm2:restart": "pm2 restart ecosystem.config.js",
     "pm2:stop": "pm2 stop all",
-    "pm2:restart": "pm2 restart all",
     "pm2:reload": "pm2 reload all",
     "pm2:logs": "pm2 logs",
     "pm2:monit": "pm2 monit"
@@ -17,6 +17,9 @@
     "concurrently": "^9.0.0"
   },
   "dependencies": {
-    "all": "^0.0.0"
+    "all": "^0.0.0",
+    "compression": "^1.8.1",
+    "express-rate-limit": "^8.5.2",
+    "helmet": "^8.2.0"
   }
 }

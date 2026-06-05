@@ -9,7 +9,8 @@ router.get("/", async (req, res) => {
     );
     res.json(result.rows);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error(err);
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -23,7 +24,8 @@ router.get("/:id", async (req, res) => {
     }
     res.json(result.rows[0]);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error(err);
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -40,7 +42,8 @@ router.post("/", async (req, res) => {
     );
     res.status(201).json(result.rows[0]);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error(err);
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -58,7 +61,8 @@ router.put("/:id", async (req, res) => {
     }
     res.json(result.rows[0]);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error(err);
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -75,7 +79,8 @@ router.delete("/:id", async (req, res) => {
     }
     res.json({ message: "Todo deleted" });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error(err);
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 

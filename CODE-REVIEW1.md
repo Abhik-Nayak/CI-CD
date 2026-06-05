@@ -1,6 +1,6 @@
 # Code Review — Performance & Security Improvements
 
-> Last updated: 2026-06-04
+> Last updated: 2026-06-05
 > Reviewed by: Abhik Nayak
 
 ---
@@ -10,14 +10,14 @@
 | # | Issue | Impact | Difficulty | Status |
 |---|---|---|---|---|
 | 1 | Vite dev server in production | Huge | Medium | Done |
-| 2 | No compression middleware | High | Easy | Pending |
-| 3 | No helmet security headers | High | Easy | Pending |
+| 2 | No compression middleware | High | Easy | Done |
+| 3 | No helmet security headers | High | Easy | Done |
 | 4 | CORS allows all origins | Medium | Easy | Pending |
-| 5 | Full refetch after every mutation | Medium | Easy | Pending |
-| 6 | No loading/error states in UI | Medium | Easy | Pending |
+| 5 | Full refetch after every mutation | Medium | Easy | Done |
+| 6 | No loading/error states in UI | Medium | Easy | Done |
 | 7 | No database index on `created_at` | Medium | Easy | Pending |
-| 8 | No rate limiting | Medium | Easy | Pending |
-| 9 | `err.message` exposed to client | Low | Easy | Pending |
+| 8 | No rate limiting | Medium | Easy | Done |
+| 9 | `err.message` exposed to client | Low | Easy | Done |
 
 ---
 
@@ -42,29 +42,29 @@ EC2 was running `vite --host 0.0.0.0` (a development server) to serve the React 
 
 ---
 
-## 2. No Compression Middleware — PENDING
+## 2. No Compression Middleware — DONE
 
 **Problem:**
 Express sends raw uncompressed JSON and HTML. Every API response and static file is sent at full size over the network, making the app 60-70% slower on slow connections.
 
-**What to do:**
-- Install `compression` package
-- Add `app.use(compression())` in `server/index.js`
+**What was changed:**
+- Installed `compression` package
+- Added `app.use(compression())` in `server/index.js` before all other middleware
 
-**Files to change:** `server/index.js`, `server/package.json`
+**Files changed:** `server/index.js`, `package.json`
 
 ---
 
-## 3. No Helmet Security Headers — PENDING
+## 3. No Helmet Security Headers — DONE
 
 **Problem:**
 Express doesn't set security HTTP headers. Missing headers like `X-Content-Type-Options`, `X-Frame-Options`, `Strict-Transport-Security` leave the app vulnerable to common attacks (clickjacking, MIME sniffing, etc).
 
-**What to do:**
-- Install `helmet` package
-- Add `app.use(helmet())` in `server/index.js`
+**What was changed:**
+- Installed `helmet` package
+- Added `app.use(helmet())` in `server/index.js` after compression, before cors
 
-**Files to change:** `server/index.js`, `server/package.json`
+**Files changed:** `server/index.js`, `package.json`
 
 ---
 
@@ -88,76 +88,35 @@ app.use(cors({
 
 ---
 
-## 5. Full Refetch After Every Mutation — PENDING
+## 5. Full Refetch After Every Mutation — DONE
 
 **Problem:**
 Every `addTodo`, `updateTodo`, `deleteTodo` calls `fetchTodos()` which reloads ALL todos from the database. With 100 todos, checking one checkbox fetches all 100 rows again.
 
-**What to do:**
-Update state locally instead of refetching:
-```javascript
-// Instead of: if (res.ok) fetchTodos();
-// Do this:
-const addTodo = async (title) => {
-  const res = await fetch(API_URL, { ... });
-  if (res.ok) {
-    const newTodo = await res.json();
-    setTodos((prev) => [newTodo, ...prev]);
-  }
-};
+**What was changed:**
+- `addTodo` — reads the new todo from the API response and prepends it to local state
+- `updateTodo` — reads the updated todo from the API response and replaces it in local state by id
+- `deleteTodo` — filters the deleted todo out of local state by id
+- Each mutation now makes 1 API call instead of 2
 
-const deleteTodo = async (id) => {
-  const res = await fetch(`${API_URL}/${id}`, { method: "DELETE" });
-  if (res.ok) {
-    setTodos((prev) => prev.filter((t) => t.id !== id));
-  }
-};
-
-const updateTodo = async (id, updates) => {
-  const res = await fetch(`${API_URL}/${id}`, { ... });
-  if (res.ok) {
-    const updated = await res.json();
-    setTodos((prev) => prev.map((t) => (t.id === id ? updated : t)));
-    setEditingTodo(null);
-  }
-};
-```
-
-**Files to change:** `client/src/App.jsx`
+**Files changed:** `client/src/App.jsx`
 
 ---
 
-## 6. No Loading/Error States in UI — PENDING
+## 6. No Loading/Error States in UI — DONE
 
 **Problem:**
 If the API is slow or fails, the user sees a blank screen with no feedback. No spinner, no error message.
 
-**What to do:**
-Add `loading` and `error` state:
-```jsx
-const [loading, setLoading] = useState(true);
-const [error, setError] = useState(null);
+**What was changed:**
+- Added `loading` and `error` state variables
+- `fetchTodos` wrapped in try/catch with loading/error handling
+- All mutations (`addTodo`, `updateTodo`, `deleteTodo`) wrapped in try/catch with error handling
+- UI shows "Loading todos..." text during initial fetch
+- Dismissable red error banner appears when any operation fails
+- Added `.loading`, `.error-banner`, `.dismiss-btn` CSS styles
 
-const fetchTodos = async () => {
-  try {
-    setLoading(true);
-    const res = await fetch(API_URL);
-    const data = await res.json();
-    setTodos(data);
-    setError(null);
-  } catch (err) {
-    setError("Failed to load todos");
-  } finally {
-    setLoading(false);
-  }
-};
-
-// In JSX:
-{loading && <p>Loading...</p>}
-{error && <p className="error">{error}</p>}
-```
-
-**Files to change:** `client/src/App.jsx`, `client/src/App.css`
+**Files changed:** `client/src/App.jsx`, `client/src/App.css`
 
 ---
 
@@ -176,31 +135,22 @@ CREATE INDEX IF NOT EXISTS idx_todos_created_at ON todos(created_at DESC);
 
 ---
 
-## 8. No Rate Limiting — PENDING
+## 8. No Rate Limiting — DONE
 
 **Problem:**
 Anyone can spam your API with unlimited requests. A simple script could send 10,000 requests per second and crash your server or fill your database.
 
-**What to do:**
-- Install `express-rate-limit` package
-- Add rate limiter middleware:
-```javascript
-const rateLimit = require("express-rate-limit");
+**What was changed:**
+- Installed `express-rate-limit` package
+- Added rate limiter middleware on all `/api` routes: 100 requests per 15-minute window per IP
+- Uses `standardHeaders: true` (sends `RateLimit-*` headers) and `legacyHeaders: false`
+- Clients exceeding the limit receive `429 Too Many Requests`
 
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000,   // 15 minutes
-  max: 100,                    // 100 requests per IP per window
-  message: { error: "Too many requests, try again later" }
-});
-
-app.use("/api/", limiter);
-```
-
-**Files to change:** `server/index.js`, `server/package.json`
+**Files changed:** `server/index.js`, `package.json`
 
 ---
 
-## 9. `err.message` Exposed to Client — PENDING
+## 9. `err.message` Exposed to Client — DONE
 
 **Problem:**
 When a 500 error occurs, the raw error message is sent to the client:
@@ -209,16 +159,10 @@ res.status(500).json({ error: err.message });
 ```
 This can leak internal details like database table names, column names, or connection strings.
 
-**What to do:**
-Log the real error server-side, send a generic message to the client:
-```javascript
-catch (err) {
-  console.error(err.message);
-  res.status(500).json({ error: "Server error" });
-}
-```
+**What was changed:**
+- All 5 catch blocks in `server/routes/todos.js` now log the full error with `console.error(err)` and return a generic `"Internal server error"` message to the client
 
-**Files to change:** `server/routes/todos.js`
+**Files changed:** `server/routes/todos.js`
 
 ---
 
