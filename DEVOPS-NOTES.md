@@ -1,4 +1,4 @@
-# DevOps Notes — CI/CD, GitHub Actions, PM2
+# DevOps Notes — CI/CD, GitHub Actions, Docker & PM2
 
 ---
 
@@ -6,11 +6,13 @@
 
 1. [CI/CD — The Big Picture](#1-cicd--the-big-picture)
 2. [GitHub Actions Workflow](#2-github-actions-workflow)
-3. [PM2 — Process Manager](#3-pm2--process-manager)
-4. [Ecosystem Config File](#4-ecosystem-config-file)
-5. [SSH Deployment Flow](#5-ssh-deployment-flow)
-6. [Common Commands Cheat Sheet](#6-common-commands-cheat-sheet)
-7. [Interview Questions & Answers](#7-interview-questions--answers)
+3. [Docker — Containerization (Current Approach)](#3-docker--containerization-current-approach)
+4. [Docker Deployment Flow](#4-docker-deployment-flow)
+5. [PM2 — Process Manager (Previous Approach)](#5-pm2--process-manager-previous-approach)
+6. [Ecosystem Config File (Previous Approach)](#6-ecosystem-config-file-previous-approach)
+7. [SSH Deployment Flow (Previous — PM2)](#7-ssh-deployment-flow-previous--pm2)
+8. [Common Commands Cheat Sheet](#8-common-commands-cheat-sheet)
+9. [Interview Questions & Answers](#9-interview-questions--answers)
 
 ---
 
@@ -28,8 +30,8 @@
 | Manually SSH into server | Auto-deploys on git push |
 | Run `git pull` by hand | GitHub Actions does it for you |
 | Forget to install dependencies | Workflow handles `npm install` |
-| App crashes, nobody notices | PM2 auto-restarts the app |
-| "It works on my machine" | Same steps run every time |
+| App crashes, nobody notices | Docker auto-restarts the app |
+| "It works on my machine" | Docker = same everywhere |
 
 ### When to use CI/CD?
 
@@ -97,8 +99,8 @@ jobs:
           script: |
             cd ~/CI-CD
             git pull origin dev
-            npm run install-all
-            pm2 restart ecosystem.config.js
+            docker compose down
+            docker compose up -d --build
 ```
 
 ### Workflow Execution Flow
@@ -121,8 +123,8 @@ Step 2: SSHs into your EC2 server
         ▼
 Runs the script on EC2:
   → git pull (get latest code)
-  → npm install (install dependencies)
-  → pm2 restart (restart the app)
+  → docker compose down (stop old containers)
+  → docker compose up -d --build (build & start new containers)
         │
         ▼
 Deployment complete!
@@ -171,7 +173,371 @@ on:
 
 ---
 
-## 3. PM2 — Process Manager
+## 3. Docker — Containerization (Current Approach)
+
+### What is Docker?
+
+Docker is a tool that packages your app + all its dependencies into a **container**. A container is like a lightweight, isolated mini-computer that runs your app exactly the same way everywhere — your laptop, your teammate's laptop, or the EC2 server.
+
+### Think of it Like This
+
+```
+Without Docker:                      With Docker:
+┌────────────────────┐               ┌────────────────────┐
+│     EC2 Server     │               │     EC2 Server     │
+│                    │               │                    │
+│  Node v18 (maybe?) │               │  ┌──────────────┐  │
+│  npm packages ???  │               │  │  Backend      │  │
+│  OS dependencies?? │               │  │  Node v18 ✓   │  │
+│  Shared folders    │               │  │  All deps ✓   │  │
+│  Port conflicts    │               │  │  Port 5000    │  │
+│                    │               │  └──────────────┘  │
+│  "Works on my      │               │  ┌──────────────┐  │
+│   machine..." 😅   │               │  │  Frontend     │  │
+│                    │               │  │  Node v18 ✓   │  │
+└────────────────────┘               │  │  All deps ✓   │  │
+                                     │  │  Port 5173    │  │
+                                     │  └──────────────┘  │
+                                     │                    │
+                                     │  "Same everywhere  │
+                                     │   guaranteed" ✅   │
+                                     └────────────────────┘
+```
+
+### Key Docker Concepts
+
+| Term | What it is | Real-World Analogy |
+|---|---|---|
+| **Image** | A blueprint/recipe for your app | A cooking recipe |
+| **Container** | A running instance of an image | The actual cooked dish |
+| **Dockerfile** | Instructions to build an image | Step-by-step recipe card |
+| **docker-compose.yml** | Defines multiple containers together | A full menu (multiple recipes) |
+| **Volume** | Persistent storage for containers | A USB drive you plug in |
+| **Port Mapping** | Maps container port to host port | Forwarding a phone call |
+| **Registry** | Where images are stored (Docker Hub) | An app store for images |
+
+### Why Docker? (PM2 vs Docker)
+
+| Feature | PM2 (Previous) | Docker (Current) |
+|---|---|---|
+| **Isolation** | Apps share OS, Node, and filesystem | Each app is fully isolated |
+| **"Works on my machine"** | Still possible — different OS/Node versions | Eliminated — same image everywhere |
+| **Dependencies** | Installed directly on server, can conflict | Each container has its own |
+| **Setup on new server** | Install Node, npm, PM2, clone, configure | Install Docker, run one command |
+| **Port conflicts** | Possible if apps share the host | Containers have internal ports |
+| **Scaling** | PM2 cluster mode (same machine only) | Docker Compose → Docker Swarm → Kubernetes |
+| **Environment parity** | Dev and prod can drift apart | Dev and prod are identical |
+| **Cleanup** | Uninstalling leaves files behind | `docker rm` — gone cleanly |
+
+### Our Architecture — Docker on EC2
+
+```
+EC2 Instance (one server)
+├── Docker installed
+├── docker-compose.yml (defines both containers)
+│
+├── Backend Container
+│   ├── Node.js (isolated)
+│   ├── Express + all npm packages (isolated)
+│   ├── Talks to PostgreSQL on RDS
+│   └── Port 5000 (mapped to host)
+│
+└── Frontend Container
+    ├── Node.js (isolated)
+    ├── React/Vite + all npm packages (isolated)
+    └── Port 5173 (mapped to host)
+```
+
+### Docker Building Blocks
+
+#### 1. Dockerfile — The Recipe
+
+A `Dockerfile` is a text file with step-by-step instructions to build a Docker image.
+
+**Backend Dockerfile** (`server/Dockerfile`):
+```dockerfile
+# Start from an official Node.js image
+FROM node:18-alpine
+
+# Set working directory inside the container
+WORKDIR /app
+
+# Copy package files first (for better caching)
+COPY package.json package-lock.json ./
+
+# Install dependencies
+RUN npm ci --only=production
+
+# Copy the rest of the code
+COPY . .
+
+# Tell Docker this container listens on port 5000
+EXPOSE 5000
+
+# Command to run when container starts
+CMD ["node", "index.js"]
+```
+
+**Frontend Dockerfile** (`client/Dockerfile`):
+```dockerfile
+FROM node:18-alpine
+
+WORKDIR /app
+
+COPY package.json package-lock.json ./
+
+RUN npm ci
+
+COPY . .
+
+EXPOSE 5173
+
+CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0"]
+```
+
+**Every Line Explained:**
+
+| Instruction | What it does | Why |
+|---|---|---|
+| `FROM node:18-alpine` | Uses Node.js v18 on Alpine Linux as base | Alpine = tiny image (~50MB vs ~350MB) |
+| `WORKDIR /app` | Sets `/app` as the working directory | Like doing `cd /app` inside container |
+| `COPY package*.json ./` | Copies package files first | Docker caches this layer — if packages didn't change, skip `npm install` |
+| `RUN npm ci` | Installs exact versions from lock file | `ci` is faster and stricter than `install` |
+| `COPY . .` | Copies all project files | Done AFTER npm install so code changes don't bust the cache |
+| `EXPOSE 5000` | Documents which port the app uses | Informational — you still need `-p` to actually map it |
+| `CMD ["node", "index.js"]` | The command that runs when the container starts | Only one `CMD` per Dockerfile |
+
+#### 2. docker-compose.yml — The Orchestra
+
+Docker Compose lets you define and run **multiple containers** with a single file.
+
+```yaml
+services:
+  backend:
+    build:
+      context: ./server              # Build from server/Dockerfile
+    ports:
+      - "5000:5000"                  # Host port : Container port
+    environment:
+      - NODE_ENV=production
+    env_file:
+      - ./server/.env                # Load secrets from .env file
+    restart: unless-stopped          # Auto-restart if it crashes
+    depends_on:
+      - frontend                     # Start frontend first (optional)
+
+  frontend:
+    build:
+      context: ./client              # Build from client/Dockerfile
+    ports:
+      - "5173:5173"                  # Host port : Container port
+    environment:
+      - NODE_ENV=production
+    restart: unless-stopped
+```
+
+**Every Field Explained:**
+
+| Field | What it does | Example |
+|---|---|---|
+| `services` | List of containers to run | `backend`, `frontend` |
+| `build.context` | Folder containing the Dockerfile | `./server` |
+| `ports` | Map host port to container port | `"5000:5000"` |
+| `environment` | Set environment variables | `NODE_ENV=production` |
+| `env_file` | Load variables from a file | `./server/.env` |
+| `restart` | When to auto-restart | `unless-stopped` = always, unless you manually stop it |
+| `depends_on` | Start order between services | Frontend starts before backend |
+
+#### 3. .dockerignore — What NOT to Copy
+
+Like `.gitignore`, but for Docker. Keeps images small and fast.
+
+```
+node_modules
+npm-debug.log
+.git
+.gitignore
+.env
+Dockerfile
+docker-compose.yml
+*.md
+```
+
+**Why?** Without `.dockerignore`, `COPY . .` would copy `node_modules` (huge!), `.git` (unnecessary), and `.env` (secrets!) into the image.
+
+### Docker Lifecycle
+
+```
+Dockerfile          docker build         docker run          docker stop
+    │                   │                    │                    │
+    ▼                   ▼                    ▼                    ▼
+┌──────────┐      ┌──────────┐        ┌───────────┐       ┌───────────┐
+│ Recipe    │ ──►  │  Image   │  ──►   │ Container │       │  Stopped  │
+│ (text     │      │ (built   │        │ (running  │       │ container │
+│  file)    │      │  snapshot)│        │  app)     │       │           │
+└──────────┘      └──────────┘        └───────────┘       └───────────┘
+                       │                    │                    │
+                       │              docker restart             │
+                       │                    │              docker rm
+                       │                    ▼                    ▼
+                       │              ┌───────────┐       ┌───────────┐
+                       │              │ Container │       │  Removed   │
+                       │              │ (running) │       └───────────┘
+                       │              └───────────┘
+                       │
+                  You can create
+                  many containers
+                  from one image
+```
+
+### Docker Layer Caching — Why Order Matters
+
+```
+Dockerfile:                           What Docker does:
+
+FROM node:18-alpine            ──►   Layer 1: Base image (cached after first build)
+WORKDIR /app                   ──►   Layer 2: Set directory (cached)
+COPY package*.json ./          ──►   Layer 3: Package files (cached if unchanged)
+RUN npm ci                     ──►   Layer 4: Install deps (cached if packages unchanged)
+COPY . .                       ──►   Layer 5: Your code (REBUILT if any code changed)
+CMD ["node", "index.js"]       ──►   Layer 6: Start command (cached)
+
+Key insight: If you change your code (Layer 5), Docker reuses
+Layers 1-4 from cache. npm install doesn't re-run!
+
+BAD order:  COPY . . → RUN npm ci   (ANY change = reinstall everything)
+GOOD order: COPY package*.json → RUN npm ci → COPY . .   (code change ≠ reinstall)
+```
+
+### Restart Policies
+
+| Policy | What it does | When to use |
+|---|---|---|
+| `no` | Never restart | Testing, one-time jobs |
+| `always` | Always restart, even after `docker stop` | Almost never (restarts on boot even if you stopped it) |
+| `unless-stopped` | Restart always, EXCEPT if you manually stopped it | **Production — this is what you want** |
+| `on-failure` | Only restart if it crashed (non-zero exit code) | Background workers, cron jobs |
+
+### Docker Setup on EC2 (One-Time)
+
+```bash
+# 1. Install Docker on Amazon Linux 2
+sudo yum update -y
+sudo yum install -y docker
+sudo service docker start
+sudo usermod -a -G docker ec2-user
+
+# Log out and back in for group change to take effect
+exit
+# SSH back in
+
+# 2. Install Docker Compose (standalone)
+sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+sudo chmod +x /usr/local/bin/docker-compose
+
+# OR install the Docker Compose plugin (newer way)
+sudo mkdir -p /usr/local/lib/docker/cli-plugins
+sudo curl -SL "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/lib/docker/cli-plugins/docker-compose
+sudo chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+
+# 3. Verify installation
+docker --version
+docker compose version
+
+# 4. Clone your project
+cd ~
+git clone <your-repo-url> CI-CD
+cd CI-CD
+
+# 5. Start the app
+docker compose up -d --build
+```
+
+---
+
+## 4. Docker Deployment Flow
+
+### The Complete Picture
+
+```
+┌──────────────┐    git push     ┌──────────────────┐
+│  Developer   │ ──────────────► │     GitHub        │
+│  (local PC)  │                 │   (repository)    │
+└──────────────┘                 └────────┬─────────┘
+                                          │
+                                  push triggers
+                                  GitHub Actions
+                                          │
+                                          ▼
+                                 ┌──────────────────┐
+                                 │  GitHub Runner    │
+                                 │  (ubuntu-latest)  │
+                                 │                   │
+                                 │  Uses SSH to      │
+                                 │  connect to EC2   │
+                                 └────────┬─────────┘
+                                          │
+                                     SSH connection
+                                    (using secrets)
+                                          │
+                                          ▼
+                                 ┌──────────────────────────┐
+                                 │       EC2 Server          │
+                                 │                           │
+                                 │  1. git pull              │
+                                 │  2. docker compose down   │
+                                 │  3. docker compose up -d  │
+                                 │     --build               │
+                                 │                           │
+                                 │  ┌─────────┐ ┌─────────┐ │
+                                 │  │Backend  │ │Frontend │ │
+                                 │  │Container│ │Container│ │
+                                 │  │  :5000  │ │  :5173  │ │
+                                 │  └─────────┘ └─────────┘ │
+                                 └──────────────────────────┘
+```
+
+### What Happens at Each Stage
+
+| Stage | What | Where | Who does it |
+|---|---|---|---|
+| 1 | Developer writes code | Local PC | You |
+| 2 | `git push origin dev` | Local → GitHub | You |
+| 3 | Workflow triggers | GitHub | Automatic |
+| 4 | Runner spins up | GitHub cloud | GitHub Actions |
+| 5 | SSH into EC2 | Runner → EC2 | `appleboy/ssh-action` |
+| 6 | Pull latest code | EC2 | `git pull` |
+| 7 | Stop old containers | EC2 | `docker compose down` |
+| 8 | Build new images & start containers | EC2 | `docker compose up -d --build` |
+| 9 | App is live | EC2 | Docker (auto-restarts on crash) |
+
+### PM2 vs Docker — Deployment Script Comparison
+
+```bash
+# OLD (PM2):
+cd ~/CI-CD
+git pull origin dev
+npm run install-all
+pm2 restart ecosystem.config.js
+
+# NEW (Docker):
+cd ~/CI-CD
+git pull origin dev
+docker compose down
+docker compose up -d --build
+```
+
+**Why this is better:**
+- No need to install Node.js or npm on the EC2 server itself
+- No need to run `npm install` on the server — it happens inside the container during build
+- No PM2 to install and configure
+- Just Docker and your code — that's it
+
+---
+
+## 5. PM2 — Process Manager (Previous Approach)
+
+> **Note:** We previously used PM2 to manage our Node.js apps directly on EC2. We've since moved to Docker for better isolation and portability. This section is kept for reference and interview prep.
 
 ### What is PM2?
 
@@ -191,20 +557,6 @@ PM2 is a **process manager** for Node.js applications. Think of it as a supervis
 | **PM2** | **Auto-restarts** | **Yes** | **Yes (per-app logs)** |
 | `systemd` | Auto-restarts | Yes | Yes (journalctl) |
 | Docker | Auto-restarts (with policy) | Yes | Yes |
-
-### When to use PM2?
-
-- Running Node.js apps on a Linux server (EC2, DigitalOcean, etc.)
-- You need auto-restart on crash
-- You want easy log management
-- You're managing multiple Node.js apps on one server
-- You don't want the complexity of Docker yet
-
-### When NOT to use PM2?
-
-- Local development (use `npm run dev` instead)
-- Dockerized apps (Docker handles restarts itself)
-- Non-Node.js apps (use `systemd` or `supervisor`)
 
 ### PM2 Lifecycle
 
@@ -249,7 +601,9 @@ pm2 startup
 
 ---
 
-## 4. Ecosystem Config File
+## 6. Ecosystem Config File (Previous Approach)
+
+> **Note:** This config was used with PM2. With Docker, we use `Dockerfile` and `docker-compose.yml` instead.
 
 ### What is it?
 
@@ -286,25 +640,6 @@ module.exports = {
 };
 ```
 
-### Every Field Explained
-
-| Field | What it does | Example |
-|---|---|---|
-| `name` | App label in PM2 dashboard | `'backend'` |
-| `script` | The file PM2 runs | `'index.js'` |
-| `cwd` | Directory to run from | `'/home/ec2-user/CI-CD/server'` |
-| `args` | Arguments passed to the script | `'--host 0.0.0.0'` |
-| `instances` | How many copies to run | `1` or `'max'` (all CPU cores) |
-| `exec_mode` | `'fork'` (single) or `'cluster'` (multi-core) | `'fork'` |
-| `env` | Environment variables | `{ NODE_ENV: 'development' }` |
-| `max_memory_restart` | Auto-restart if memory exceeds this | `'500M'` |
-| `restart_delay` | Delay (ms) before restarting after crash | `4000` |
-| `error_file` | Where stderr logs are written | `'./logs/error.log'` |
-| `out_file` | Where stdout logs are written | `'./logs/out.log'` |
-| `log_date_format` | Timestamp format for log lines | `'YYYY-MM-DD HH:mm:ss Z'` |
-| `watch` | Auto-restart on file change | `false` (use for dev only) |
-| `ignore_watch` | Folders to ignore if watch is true | `['node_modules', '.git']` |
-
 ### Fork vs Cluster Mode
 
 ```
@@ -324,20 +659,11 @@ Use for:                           Use for:
 - Small apps                       - CPU-intensive tasks
 ```
 
-### Windows vs Linux Gotcha
-
-```
-Windows:  node_modules/.bin/vite     → This is a .cmd file → PM2 FAILS
-          node_modules/vite/bin/vite.js  → Actual JS file → PM2 WORKS
-
-Linux:    node_modules/.bin/vite     → This is a shell script → PM2 WORKS
-```
-
 ---
 
-## 5. SSH Deployment Flow
+## 7. SSH Deployment Flow (Previous — PM2)
 
-### The Complete Picture
+> **Note:** This was the PM2 deployment flow. See [Section 4](#4-docker-deployment-flow) for the current Docker-based flow.
 
 ```
 ┌──────────────┐    git push     ┌──────────────────┐
@@ -375,52 +701,62 @@ Linux:    node_modules/.bin/vite     → This is a shell script → PM2 WORKS
                                  └──────────────────┘
 ```
 
-### What Happens at Each Stage
-
-| Stage | What | Where | Who does it |
-|---|---|---|---|
-| 1 | Developer writes code | Local PC | You |
-| 2 | `git push origin dev` | Local → GitHub | You |
-| 3 | Workflow triggers | GitHub | Automatic |
-| 4 | Runner spins up | GitHub cloud | GitHub Actions |
-| 5 | SSH into EC2 | Runner → EC2 | `appleboy/ssh-action` |
-| 6 | Pull latest code | EC2 | `git pull` |
-| 7 | Install dependencies | EC2 | `npm run install-all` |
-| 8 | Restart app | EC2 | `pm2 restart` |
-| 9 | App is live | EC2 | PM2 |
-
 ---
 
-## 6. Common Commands Cheat Sheet
+## 8. Common Commands Cheat Sheet
 
-### PM2 Commands
+### Docker Commands
+
+```bash
+# --- Building & Running ---
+docker compose up -d --build      # Build images and start containers (detached)
+docker compose up -d              # Start containers (without rebuilding)
+docker compose down               # Stop and remove containers
+docker compose restart             # Restart all containers
+docker compose stop                # Stop containers (don't remove)
+docker compose start               # Start stopped containers
+
+# --- Viewing Status ---
+docker ps                          # Show running containers
+docker ps -a                       # Show ALL containers (including stopped)
+docker compose ps                  # Show containers for this project
+docker images                      # List all images on this machine
+
+# --- Logs ---
+docker compose logs                # Show logs from all containers
+docker compose logs backend        # Show logs from one container
+docker compose logs -f             # Follow logs live (like tail -f)
+docker compose logs --tail 50      # Last 50 lines
+
+# --- Going Inside a Container ---
+docker exec -it <container> sh     # Open a shell inside the container
+docker exec -it backend sh         # Example: go inside backend container
+
+# --- Cleanup ---
+docker system prune                # Remove unused images, containers, networks
+docker system prune -a             # Remove EVERYTHING unused (reclaim disk space)
+docker rmi <image-id>              # Remove a specific image
+docker rm <container-id>           # Remove a specific stopped container
+
+# --- Building Images Manually ---
+docker build -t my-backend ./server    # Build image from server/Dockerfile
+docker run -p 5000:5000 my-backend     # Run the image as a container
+```
+
+### PM2 Commands (Previous)
 
 ```bash
 # --- Starting & Stopping ---
 pm2 start ecosystem.config.js     # Start all apps from config
-pm2 start app.js                  # Start a single file
 pm2 stop all                      # Stop all apps
-pm2 stop backend                  # Stop one app by name
 pm2 restart all                   # Restart all apps
-pm2 restart backend               # Restart one app
-pm2 reload all                    # Zero-downtime restart (cluster mode only)
 pm2 delete all                    # Stop + remove all apps from PM2
 
 # --- Monitoring ---
 pm2 list                          # Show all running apps
-pm2 monit                         # Real-time dashboard (CPU, memory, logs)
-pm2 show backend                  # Detailed info about one app
-
-# --- Logs ---
+pm2 monit                         # Real-time dashboard
 pm2 logs                          # Live logs from all apps
-pm2 logs backend                  # Live logs from one app
 pm2 logs --lines 50               # Last 50 lines
-pm2 flush                         # Clear all log files
-
-# --- Startup ---
-pm2 save                          # Save current app list
-pm2 startup                       # Generate boot startup script
-pm2 unstartup                     # Remove boot startup script
 ```
 
 ### GitHub CLI Commands (useful for debugging)
@@ -450,11 +786,14 @@ sudo fuser -k 5000/tcp
 htop
 free -m
 df -h
+
+# Check Docker disk usage
+docker system df
 ```
 
 ---
 
-## 7. Interview Questions & Answers
+## 9. Interview Questions & Answers
 
 ### CI/CD Basics
 
@@ -537,9 +876,121 @@ df -h
 
 ---
 
-### PM2
+### Docker
 
-**Q11: What is PM2 and why is it used?**
+**Q11: What is Docker and why is it used?**
+
+> Docker is a containerization platform that packages applications and all their dependencies into isolated units called **containers**. It's used to:
+> - Eliminate "works on my machine" problems
+> - Ensure identical environments across dev, staging, and production
+> - Isolate apps from each other (no dependency conflicts)
+> - Simplify deployment (just run `docker compose up`)
+> - Make scaling easier (from single server to orchestration platforms)
+
+---
+
+**Q12: What is the difference between a Docker Image and a Container?**
+
+> A **Docker Image** is a read-only blueprint — it contains your code, dependencies, and OS layer. Think of it like a class in OOP.
+> A **Container** is a running instance of an image — it's the actual process executing your app. Think of it like an object (instance of a class).
+> You can create many containers from one image.
+> ```
+> Image (blueprint)  →  Container 1 (running)
+>                    →  Container 2 (running)
+>                    →  Container 3 (running)
+> ```
+
+---
+
+**Q13: What is a Dockerfile?**
+
+> A Dockerfile is a text file with step-by-step instructions to build a Docker image. Each instruction creates a layer in the image. Common instructions include `FROM` (base image), `COPY` (add files), `RUN` (execute commands), `EXPOSE` (declare ports), and `CMD` (startup command).
+
+---
+
+**Q14: What is Docker Compose and when do you use it?**
+
+> Docker Compose is a tool for defining and running **multi-container** applications. You describe all your services (backend, frontend, database, etc.) in a single `docker-compose.yml` file and start everything with one command: `docker compose up`. Use it when your app has more than one container that need to work together.
+
+---
+
+**Q15: Explain the purpose of each Dockerfile instruction: FROM, WORKDIR, COPY, RUN, EXPOSE, CMD.**
+
+> | Instruction | Purpose |
+> |---|---|
+> | `FROM` | Sets the base image (e.g., `node:18-alpine`) — the starting point |
+> | `WORKDIR` | Sets the working directory inside the container |
+> | `COPY` | Copies files from your computer into the container |
+> | `RUN` | Executes a command during image build (e.g., `npm install`) |
+> | `EXPOSE` | Documents which port the container listens on (informational only) |
+> | `CMD` | The command that runs when the container starts |
+
+---
+
+**Q16: Why do we copy `package.json` before copying the rest of the code in a Dockerfile?**
+
+> For **layer caching**. Docker caches each layer. If `package.json` hasn't changed, Docker reuses the cached `npm install` layer instead of reinstalling everything. If we did `COPY . .` first, any code change would invalidate the cache and force a full reinstall.
+> ```dockerfile
+> # GOOD — npm install only reruns when packages change
+> COPY package*.json ./
+> RUN npm ci
+> COPY . .
+>
+> # BAD — npm install reruns on ANY code change
+> COPY . .
+> RUN npm ci
+> ```
+
+---
+
+**Q17: What is `.dockerignore` and why is it important?**
+
+> `.dockerignore` tells Docker which files to exclude when copying files into the image. It keeps images small and prevents sensitive files (like `.env`) from being baked into the image. Common exclusions: `node_modules`, `.git`, `.env`, `*.md`.
+
+---
+
+**Q18: What is the difference between `CMD` and `ENTRYPOINT` in a Dockerfile?**
+
+> **`CMD`** sets the default command but can be overridden at runtime: `docker run myimage <new-command>`.
+> **`ENTRYPOINT`** sets a fixed command that always runs — arguments passed at runtime are appended to it.
+> ```dockerfile
+> # CMD — can be replaced entirely
+> CMD ["node", "index.js"]
+> # docker run myimage sh   → runs sh (CMD replaced)
+>
+> # ENTRYPOINT — always runs
+> ENTRYPOINT ["node"]
+> CMD ["index.js"]
+> # docker run myimage app.js  → runs node app.js (ENTRYPOINT kept, CMD replaced)
+> ```
+
+---
+
+**Q19: What are Docker restart policies? Which one should you use in production?**
+
+> Restart policies control what happens when a container stops:
+> - `no` — never restart
+> - `always` — restart no matter what (even after `docker stop`)
+> - `unless-stopped` — restart always EXCEPT when manually stopped **(best for production)**
+> - `on-failure` — only restart if the container exited with an error
+
+---
+
+**Q20: How do you view logs of a Docker container?**
+
+> ```bash
+> docker compose logs              # All containers
+> docker compose logs backend      # Specific service
+> docker compose logs -f           # Follow live (stream)
+> docker compose logs --tail 100   # Last 100 lines
+> docker logs <container-id>       # By container ID
+> ```
+
+---
+
+### PM2 (Previous Approach)
+
+**Q21: What is PM2 and why was it used?**
 
 > PM2 is a production process manager for Node.js applications. It's used to:
 > - Keep apps running 24/7 (auto-restart on crash)
@@ -547,116 +998,71 @@ df -h
 > - Handle logs with timestamps
 > - Monitor CPU and memory usage
 > - Survive server reboots (`pm2 startup`)
+>
+> We moved to Docker because it provides full isolation, eliminates environment drift, and makes the setup portable.
 
 ---
 
-**Q12: What is the difference between `fork` and `cluster` mode in PM2?**
+**Q22: What is the difference between `fork` and `cluster` mode in PM2?**
 
 > **Fork mode:** Runs a single instance of the app. Used for most apps, especially dev servers.
 > **Cluster mode:** Runs multiple instances across CPU cores, sharing the same port. Used for production APIs to handle more traffic. Only works with stateless apps.
-> ```javascript
-> // Fork — 1 instance
-> { instances: 1, exec_mode: 'fork' }
-> // Cluster — use all CPU cores
-> { instances: 'max', exec_mode: 'cluster' }
-> ```
 
 ---
 
-**Q13: What is an ecosystem file in PM2?**
+**Q23: What is an ecosystem file in PM2?**
 
-> An ecosystem file (`ecosystem.config.js`) is a configuration file that defines all apps PM2 should manage. It specifies the script to run, working directory, environment variables, log paths, memory limits, and restart behavior. Instead of passing all options via command line, you define them once in this file.
-
----
-
-**Q14: How do you ensure PM2 restarts apps after a server reboot?**
-
-> Two commands:
-> ```bash
-> pm2 save       # Saves the current list of running apps
-> pm2 startup    # Generates a system startup script
-> ```
-> `pm2 startup` outputs a command (usually involving `systemd`) that you must copy and run. After this, PM2 and all saved apps start automatically when the server boots.
-
----
-
-**Q15: What is the difference between `pm2 restart` and `pm2 reload`?**
-
-> **`pm2 restart`:** Kills the app and starts it fresh. There's a brief downtime.
-> **`pm2 reload`:** Only works in cluster mode. It restarts instances one by one, so at least one instance is always running. This achieves **zero-downtime** deployment.
-
----
-
-**Q16: How do you view logs in PM2?**
-
-> ```bash
-> pm2 logs                # All apps, live stream
-> pm2 logs backend        # Specific app
-> pm2 logs --lines 100    # Last 100 lines
-> pm2 flush               # Clear all logs
-> ```
-> Logs are stored in `~/.pm2/logs/` by default, or in custom paths defined in the ecosystem file.
+> An ecosystem file (`ecosystem.config.js`) is a configuration file that defines all apps PM2 should manage. It specifies the script to run, working directory, environment variables, log paths, memory limits, and restart behavior.
 
 ---
 
 ### Deployment & SSH
 
-**Q17: What is `appleboy/ssh-action` in GitHub Actions?**
+**Q24: What is `appleboy/ssh-action` in GitHub Actions?**
 
 > It's a third-party GitHub Action that SSHs into a remote server and runs commands. It uses your SSH key (stored as a GitHub Secret) to authenticate. It's commonly used to deploy code to EC2 or any Linux server.
 
 ---
 
-**Q18: Why use `nohup` when running apps via SSH?**
+**Q25: Describe your deployment pipeline end-to-end.**
 
-> When an SSH session ends, all processes started in that session are killed. `nohup` (no hang up) prevents this — the app keeps running after SSH disconnects. The `&` at the end runs it in the background so the SSH session can exit.
-> ```bash
-> nohup npm run dev > app.log 2>&1 &
-> ```
-> However, PM2 is a better alternative because it also handles crash recovery and log management.
-
----
-
-**Q19: Why shouldn't you use `pkill -f "node"` to stop your app?**
-
-> `pkill -f "node"` kills ALL processes with "node" in the name, including system processes you don't own. This can cause `Operation not permitted` errors or accidentally kill other apps. Instead, use:
-> - `pm2 restart all` (if using PM2)
-> - `fuser -k 5000/tcp` (kill by specific port)
-
----
-
-**Q20: What is the difference between running `npm run dev` vs `npm run start` on a server?**
-
-> **`npm run dev`** (uses `nodemon`): Watches for file changes and auto-restarts. Good for local development, but unnecessary on a server since PM2 handles restarts.
-> **`npm run start`** (uses `node`): Runs the app directly without watching. Lighter on resources. This is what you should use in production with PM2.
+> 1. Developer pushes code to the `dev` branch
+> 2. GitHub Actions workflow triggers automatically
+> 3. A GitHub runner (Ubuntu VM) spins up
+> 4. The runner SSHs into our EC2 server using secrets
+> 5. On EC2: `git pull` to get latest code
+> 6. `docker compose down` to stop old containers
+> 7. `docker compose up -d --build` to build new images and start containers
+> 8. Docker runs the backend (port 5000) and frontend (port 5173) in isolated containers
+> 9. If a container crashes, Docker auto-restarts it (`unless-stopped` policy)
 
 ---
 
 ### Scenario-Based Questions
 
-**Q21: Your deployment workflow runs but the app doesn't start. How do you debug?**
+**Q26: Your deployment workflow runs but the app doesn't start. How do you debug?**
 
 > 1. Check GitHub Actions logs (Actions tab → click the failed run)
-> 2. SSH into the server and check PM2 status: `pm2 list`
-> 3. Check app logs: `pm2 logs`
-> 4. Check if ports are in use: `sudo lsof -i :5000`
-> 5. Check if dependencies installed: `cd server && npm install`
-> 6. Try running the app manually: `node index.js`
+> 2. SSH into the server and check containers: `docker ps -a`
+> 3. Check container logs: `docker compose logs`
+> 4. Check if the image built successfully: `docker images`
+> 5. Check if ports are in use: `sudo lsof -i :5000`
+> 6. Try building manually: `docker compose up --build` (without `-d` to see output)
 
 ---
 
-**Q22: Your app keeps crashing and restarting on EC2. How do you investigate?**
+**Q27: Your container keeps restarting. How do you investigate?**
 
-> 1. `pm2 logs backend --lines 100` — check error messages
-> 2. `pm2 show backend` — check restart count and memory usage
-> 3. Check if it's a memory issue (hitting `max_memory_restart`)
-> 4. Check `.env` file — missing environment variables cause crashes
-> 5. Check database connection — is PostgreSQL running?
-> 6. Run `pm2 monit` to watch CPU/memory in real-time
+> 1. `docker compose logs backend --tail 100` — check error messages
+> 2. `docker ps -a` — check restart count and exit codes
+> 3. `docker inspect <container>` — check detailed state and config
+> 4. Check if `.env` file exists and has correct values
+> 5. Check if the database (RDS) is reachable from the container
+> 6. Go inside the container: `docker exec -it backend sh` — look around
 
 ---
 
-**Q23: You push to `dev` but the workflow doesn't trigger. What could be wrong?**
+**Q28: You push to `dev` but the workflow doesn't trigger. What could be wrong?**
 
 > 1. Check if the workflow file is in `.github/workflows/` (exact path matters)
 > 2. Check if the branch name matches: `branches: [dev]`
@@ -666,7 +1072,7 @@ df -h
 
 ---
 
-**Q24: How would you set up different deployments for `dev` and `prod` branches?**
+**Q29: How would you set up different deployments for `dev` and `prod` branches?**
 
 > Create two workflow files:
 > - `.github/workflows/deploy-dev.yml` → triggers on push to `dev` → deploys to dev server
@@ -678,7 +1084,7 @@ df -h
 
 ---
 
-**Q25: What happens if two developers push to `dev` at the same time?**
+**Q30: What happens if two developers push to `dev` at the same time?**
 
 > GitHub Actions queues the workflows. The first push triggers a workflow run, and the second push triggers another. They run sequentially (by default) for the same branch. You can configure concurrency to cancel the older run:
 > ```yaml
@@ -697,7 +1103,8 @@ df -h
 | GitHub Actions | CI/CD automation | On every push/PR | Automate testing and deployment |
 | GitHub Secrets | Encrypted variables | Store sensitive data | Keep SSH keys and passwords safe |
 | SSH Action | Remote server access | During deployment | Run commands on EC2 from GitHub |
-| PM2 | Process manager | On the server | Keep Node.js apps alive 24/7 |
-| Ecosystem file | PM2 config | Define app settings | Manage multiple apps from one file |
-| `nohup` | Keep process alive | SSH deployment (without PM2) | Prevent app from dying when SSH ends |
-| `fuser -k` | Kill process by port | Before restarting app | Free up the port for the new process |
+| Docker | Containerization | Package and run apps | Identical environments everywhere |
+| Docker Compose | Multi-container orchestration | Run multiple services | Start backend + frontend with one command |
+| Dockerfile | Image blueprint | Build container images | Reproducible, layer-cached builds |
+| `.dockerignore` | Exclude files from image | During `docker build` | Keep images small, exclude secrets |
+| PM2 (previous) | Process manager | On the server | Keep Node.js apps alive (replaced by Docker) |
