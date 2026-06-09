@@ -65,10 +65,10 @@ app.get("/api/health", async (req, res) => {
 });
 
 // Serve React built files (must be AFTER all /api routes)
-app.use(express.static(path.join(__dirname, "public")));
-app.get("*", (req, res) => {
-  res.sendFile(path.join(__dirname, "public", "index.html"));
-});
+// app.use(express.static(path.join(__dirname, "public")));
+// app.get("*", (req, res) => {
+//   res.sendFile(path.join(__dirname, "public", "index.html"));
+// });
 
 async function start() {
   await pool.query(`

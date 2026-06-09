@@ -17,8 +17,9 @@
 11. [Save & Load Images](#11-save--load-images)
 12. [Docker Compose](#12-docker-compose)
 13. [Dockerfile — Build Your Own Image](#13-dockerfile--build-your-own-image)
-14. [Quick Test — Run Nginx in 60 Seconds](#14-quick-test--run-nginx-in-60-seconds)
-15. [Health Check — See Everything at Once](#15-health-check--see-everything-at-once)
+14. [Run Your Own App — Build & Run from Dockerfile](#14-run-your-own-app--build--run-from-dockerfile)
+15. [Quick Test — Run Nginx in 60 Seconds](#15-quick-test--run-nginx-in-60-seconds)
+16. [Health Check — See Everything at Once](#16-health-check--see-everything-at-once)
 
 ---
 
@@ -500,7 +501,146 @@ docker run -d --name myapp -p 5000:5000 my-app
 
 ---
 
-## 14. Quick Test — Run Nginx in 60 Seconds
+## 14. Run Your Own App — Build & Run from Dockerfile
+
+### Step-by-Step
+
+```bash
+# ============================================
+# STEP 1: Build the image from your Dockerfile
+# ============================================
+docker build -t backend ./server
+#             │          │
+#             │          └── Path to the folder containing your Dockerfile
+#             └── Name your image "backend"
+#
+# What happens inside:
+#   1. Docker reads server/Dockerfile
+#   2. Downloads node:18-alpine (base image)
+#   3. Copies package.json into the image
+#   4. Runs npm ci (installs dependencies)
+#   5. Copies your code into the image
+#   6. Saves it all as an image called "backend"
+
+
+# ============================================
+# STEP 2: Run a container from that image
+# ============================================
+docker run -d --name backend -p 5000:5000 --env-file ./server/.env backend
+```
+
+### Step 2 Breakdown — Every Flag Explained
+
+```
+docker run                                    → "Create and start a container"
+  │
+  ├── -d                                      → Detached mode (run in background)
+  │                                             Without -d: logs fill your terminal,
+  │                                             Ctrl+C kills the app
+  │                                             With -d: runs silently, terminal is free
+  │
+  ├── --name backend                          → Name the container "backend"
+  │                                             Without this: Docker picks a random name
+  │                                             like "angry_panda" or "silly_morse"
+  │                                             With this: you can do docker stop backend,
+  │                                             docker logs backend — easy to remember
+  │
+  ├── -p 5000:5000                            → Port mapping
+  │       │     │
+  │       │     └── Container's internal port (where Express listens)
+  │       └── Your machine's port (what you type in the browser)
+  │
+  │    How it works:
+  │    ┌──────────────┐         ┌──────────────────────┐
+  │    │ Your Browser │         │ Container            │
+  │    │              │  5000   │              5000     │
+  │    │ localhost:5000├────────►  Express app listens  │
+  │    │              │         │  on port 5000        │
+  │    └──────────────┘         └──────────────────────┘
+  │
+  │    You could also do -p 3000:5000 :
+  │    Browser hits localhost:3000 → forwards to container's 5000
+  │
+  ├── --env-file ./server/.env                → Load environment variables from file
+  │                                             Your app needs these to run:
+  │                                               PORT=5000
+  │                                               DB_USER=...
+  │                                               DB_PASS=...
+  │                                               DB_HOST=...
+  │                                               DB_PORT=5432
+  │                                               DB_NAME=...
+  │
+  │    Without --env-file: container has NO env vars
+  │                        → app crashes immediately
+  │    With --env-file:    all vars from .env are injected
+  │                        → app starts normally
+  │
+  └── backend                                 → The IMAGE to create the container from
+                                                (the one you built in Step 1)
+```
+
+### After Running — Verify
+
+```bash
+# ============================================
+# STEP 3: Check if the container is running
+# ============================================
+docker ps
+#
+# GOOD output (Status = "Up"):
+# CONTAINER ID  IMAGE    STATUS        PORTS                   NAMES
+# a1b2c3d4e5f6  backend  Up 5 seconds  0.0.0.0:5000->5000/tcp  backend
+#
+# BAD output (empty):
+# Container crashed — go to Step 4 to find out why
+
+
+# ============================================
+# STEP 4: Check logs (see what the app printed)
+# ============================================
+docker logs backend
+#
+# GOOD output:
+#   Database table ready
+#   Server running on port 5000
+#
+# BAD output (example):
+#   Error: Missing required environment variables: DB_HOST, DB_PASS
+#   → Your .env file is missing variables
+
+
+# ============================================
+# STEP 5: Test in browser
+# ============================================
+# Visit: http://localhost:5000/api/health
+# You should see JSON with status, uptime, database info
+
+
+# ============================================
+# STEP 6: When done — stop and remove
+# ============================================
+docker stop backend       # Stop the container
+docker rm backend         # Remove it
+```
+
+### The Full Flow
+
+```
+Dockerfile          docker build         docker run            Browser
+(recipe)            (bake it)            (serve it)            (eat it)
+    │                   │                    │                    │
+    ▼                   ▼                    ▼                    ▼
+┌──────────┐      ┌──────────┐        ┌───────────┐       ┌───────────┐
+│ FROM     │      │  Image   │  .env  │ Container │       │ localhost │
+│ COPY     │ ──►  │ "backend"│ ──────►│ "backend" │ ──►   │   :5000   │
+│ RUN      │      │ (frozen) │  vars  │ (running) │       │           │
+│ CMD      │      └──────────┘        └───────────┘       └───────────┘
+└──────────┘
+```
+
+---
+
+## 15. Quick Test — Run Nginx in 60 Seconds
 
 Run these commands in order to verify Docker is working:
 
@@ -530,7 +670,7 @@ docker rm mynginx
 
 ---
 
-## 15. Health Check — See Everything at Once
+## 16. Health Check — See Everything at Once
 
 Run all of these to see the full state of your Docker system:
 
