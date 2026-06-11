@@ -22,18 +22,10 @@ jobs:
           script: |
             cd ~/CI-CD
 
-            echo "📥 Pulling latest code from dev branch..."
-            git pull origin dev
+            echo "Pulling latest code from docker-dev branch ."
+            git pull origin docker-dev
 
-            echo "📦 Installing dependencies..."
-            npm run install-all
+            echo "Building and restarting containers..."
+            docker compose -f docker-compose.prod.yml up --build -d
 
-            echo "🔨 Building React app..."
-            cd client && npm run build && cd ..
-
-            mkdir -p ~/CI-CD/logs
-
-            echo "🔄 Restarting backend with PM2..."
-            pm2 restart ecosystem.config.js || pm2 start ecosystem.config.js
-
-            echo "✅ Deployment complete!"
+            echo "Deployment complete!"
