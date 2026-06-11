@@ -1,0 +1,31 @@
+services:
+
+  # ── Express API ────────────────────────────────────────────────────────────
+  server:
+    build: ./server
+    ports:
+      - "5000:5000"
+    env_file:
+      - ./server/.env
+    environment:
+      DB_HOST: host.docker.internal     # points to EC2 host where Postgres is running
+    extra_hosts:
+      - "host.docker.internal:host-gateway"   # Linux needs this — Docker Desktop handles it automatically on Windows/Mac
+    restart: unless-stopped
+    networks:
+      - todo-network
+
+  # ── React + nginx ──────────────────────────────────────────────────────────
+  client:
+    build: ./client
+    ports:
+      - "80:80"
+    restart: unless-stopped
+    networks:
+      - todo-network
+    depends_on:
+      - server
+
+networks:
+  todo-network:
+    driver: bridge
