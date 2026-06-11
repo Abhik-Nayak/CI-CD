@@ -22,8 +22,8 @@ jobs:
           script: |
             cd ~/CI-CD
 
-            echo "Pulling latest code from docker-dev branch ."
-            git pull origin docker-dev
+            git checkout dev
+            git pull origin dev
 
             echo "Building and restarting containers..."
             docker compose -f docker-compose.prod.yml up --build -d
