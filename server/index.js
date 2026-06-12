@@ -1,24 +1,19 @@
 require("dotenv").config();
 const express = require("express");
-const path = require("path");
 const cors = require("cors");
 const compression = require("compression");
 const helmet = require("helmet");
 const rateLimit = require("express-rate-limit");
 const pool = require("./db");
 const todoRoutes = require("./routes/todos");
-
+const authRoutes = require("./routes/auth");
+const authMiddleware = require("./middleware/auth");
 
 const app = express();
 const PORT = process.env.PORT;
 
-
 app.use(compression());
-app.use(
-  helmet({
-    contentSecurityPolicy: false,
-  })
-);
+app.use(helmet({ contentSecurityPolicy: false }));
 app.use(cors());
 app.use(express.json());
 
@@ -31,7 +26,8 @@ const apiLimiter = rateLimit({
 
 app.use("/api", apiLimiter);
 
-app.use("/api/todos", todoRoutes);
+app.use("/api/auth", authRoutes);
+app.use("/api/todos", authMiddleware, todoRoutes);
 
 app.get("/api/health", async (req, res) => {
   const uptime = process.uptime();
@@ -64,22 +60,31 @@ app.get("/api/health", async (req, res) => {
   });
 });
 
-// Serve React built files (must be AFTER all /api routes)
-// app.use(express.static(path.join(__dirname, "public")));
-// app.get("*", (req, res) => {
-//   res.sendFile(path.join(__dirname, "public", "index.html"));
-// });
-
 async function start() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS users (
+      id SERIAL PRIMARY KEY,
+      email VARCHAR(255) UNIQUE NOT NULL,
+      password_hash VARCHAR(255) NOT NULL,
+      created_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+
   await pool.query(`
     CREATE TABLE IF NOT EXISTS todos (
       id SERIAL PRIMARY KEY,
       title VARCHAR(255) NOT NULL,
       completed BOOLEAN DEFAULT false,
-      created_at TIMESTAMP DEFAULT NOW()
+      created_at TIMESTAMP DEFAULT NOW(),
+      user_id INTEGER REFERENCES users(id) ON DELETE CASCADE
     )
   `);
-  console.log("Database table ready");
+
+  await pool.query(`
+    ALTER TABLE todos ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id) ON DELETE CASCADE
+  `);
+
+  console.log("Database tables ready");
 
   app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
