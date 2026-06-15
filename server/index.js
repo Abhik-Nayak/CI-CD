@@ -12,6 +12,11 @@ const authMiddleware = require("./middleware/auth");
 const app = express();
 const PORT = process.env.PORT;
 
+// One proxy (nginx) sits in front — trust its X-Forwarded-For so
+// express-rate-limit can identify clients by real IP. Use 1, not true,
+// so the header can't be spoofed to bypass rate limiting.
+app.set("trust proxy", 1);
+
 app.use(compression());
 app.use(helmet({ contentSecurityPolicy: false }));
 app.use(cors());

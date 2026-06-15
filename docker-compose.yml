@@ -1,44 +1,26 @@
 services:
 
-  # ── PostgreSQL Database (local dev only — use RDS on EC2) ──────────────────
-  db:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: todos
-    ports:
-      - "5432:5432"             # exposes postgres to host — lets pgAdmin connect
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    networks:
-      - todo-network
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
   # ── Express API ────────────────────────────────────────────────────────────
+  # Uses the LOCAL host Postgres (no db container).
   server:
     build: ./server
     ports:
       - "5000:5000"
     env_file:
-      - ./server/.env           # loads PORT, DB_USER, DB_PASS, DB_PORT, DB_NAME, JWT_SECRET
+      - ./server/.env                    # loads PORT, DB_USER, DB_PASS, DB_PORT, DB_NAME, JWT_SECRET
     environment:
-      DB_HOST: db               # overrides .env — points to postgres container
+      DB_HOST: host.docker.internal      # overrides .env — points to host machine's Postgres
+    extra_hosts:
+      - "host.docker.internal:host-gateway"  # makes host.docker.internal resolve on Linux too
     networks:
       - todo-network
-    depends_on:
-      db:
-        condition: service_healthy
 
   # ── React + nginx ──────────────────────────────────────────────────────────
   client:
     build: ./client
     ports:
       - "80:80"
+      - "8080:8080"
     networks:
       - todo-network
     depends_on:
@@ -48,7 +30,3 @@ services:
 networks:
   todo-network:
     driver: bridge
-
-# ── Named Volumes ──────────────────────────────────────────────────────────
-volumes:
-  postgres_data:

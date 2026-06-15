@@ -52,7 +52,70 @@ docker exec -it <name> env   # print env vars inside container
 
 ---
 
-## 2. IMAGES
+## 2. DOCKERFILE — Build & Run Manually
+
+### Build image from Dockerfile
+```bash
+# Basic build — runs Dockerfile in current directory
+docker build -t myapp .
+
+# Specify Dockerfile path (if not in current dir)
+docker build -t myapp -f ./client/Dockerfile .
+
+# Build with a tag (name:version)
+docker build -t myapp:1.0 .
+
+# Force full rebuild — ignore all cached layers
+docker build --no-cache -t myapp .
+
+# Pass build argument (e.g. VITE_API_URL in client Dockerfile)
+docker build --build-arg VITE_API_URL=http://localhost:5000 -t myapp .
+```
+> **When:** You want to build ONE image manually without docker compose.
+
+### Run container from image
+```bash
+# Basic run
+docker run myapp
+
+# Run detached (background)
+docker run -d myapp
+
+# Run with port mapping (host:container)
+docker run -d -p 80:80 myapp
+
+# Run with name (easier to reference later)
+docker run -d -p 80:80 --name my-client myapp
+
+# Run and attach to network
+docker run -d -p 80:80 --network todo-network --name my-client myapp
+
+# Run with env variable
+docker run -d -p 5000:5000 -e NODE_ENV=production myapp
+
+# Run interactively (get a shell, no app start)
+docker run -it myapp sh
+```
+> **When:** Testing one container in isolation before wiring it up with compose.
+
+### Build + Run — This Project Manually
+```bash
+# Step 1 — create shared network
+docker network create todo-network
+
+# Step 2 — build images
+docker build -t ci-cd-client ./client
+docker build -t ci-cd-server ./server
+
+# Step 3 — run containers on same network
+docker run -d -p 80:80 --network todo-network --name ci-cd-client-1 ci-cd-client
+docker run -d -p 5000:5000 --network todo-network --name ci-cd-server-1 ci-cd-server
+```
+> **What compose does:** All of the above steps in one command — `docker compose up --build`
+
+---
+
+## 3. IMAGES
 
 ### List
 ```bash
@@ -240,4 +303,41 @@ docker compose down
 
 # Check disk usage
 docker system df
+```
+
+---
+
+## 8. FLAGS REFERENCE
+
+Flags are short options that modify a command. **The same letter can mean different things per command — context matters.**
+
+### Common flags
+| Flag | Long form | Means | Example |
+|------|-----------|-------|---------|
+| `-d` | `--detach` | run in background, frees terminal | `docker run -d`, `docker compose up -d` |
+| `-t` | `--tag` | name/tag the image | `docker build -t myapp .` |
+| `-f` | `--force` | force the action (skip safety checks) | `docker rm -f`, `docker rmi -f` |
+| `-p` | `--publish` | port map `host:container` | `docker run -p 5000:5000` |
+| `-e` | `--env` | set one env variable | `docker run -e NODE_ENV=production` |
+| `-i` | `--interactive` | keep input open (type into it) | `docker exec -i` |
+| `-t` | `--tty` | give a real terminal (prompt) | `docker exec -it` |
+| `-v` | `--volume` | mount a volume `name:/path` | `docker run -v data:/app` |
+| `-q` | `--quiet` | IDs only (for scripting) | `docker ps -q` |
+| `-a` | `--all` | include stopped/unused items | `docker ps -a`, `docker image prune -a` |
+
+### Same letter, different meaning (watch out)
+- **`-t`**: in `docker build` = **tag**; in `docker exec -it` = **tty** (terminal).
+- **`-f`**: in `docker rm` = **force**; in `docker logs -f` = **follow** (live); in `docker build -f Dockerfile.dev` = **file** (which Dockerfile).
+- **`-a`**: in `docker ps -a` = all containers; in `docker image prune -a` = all unused images.
+
+### `-it` combo (most common)
+```bash
+docker exec -it <name> sh
+```
+`-i` (keep input open) + `-t` (real terminal) = an interactive shell you can type into. Without both, the shell opens and exits instantly.
+
+### Check any command's flags
+```bash
+docker run --help
+docker build --help
 ```
