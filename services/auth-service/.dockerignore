@@ -1,0 +1,10 @@
+# Keep the build context small and the image clean.
+# Anything listed here is NOT sent to the Docker daemon / copied into the image.
+node_modules
+npm-debug.log
+.env
+.git
+.gitignore
+Dockerfile
+.dockerignore
+*.md

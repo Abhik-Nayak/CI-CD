@@ -1,5 +1,22 @@
-node_modules
+# Dependencies
+node_modules/
+
+# Env / secrets — never commit these
 .env
-dist
-server/public
-# ecosystem.local.config.js
+.env.local
+*.env
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Build output
+dist/
+build/
