@@ -1,0 +1,16 @@
+# 1) A private network so the two containers can find each other by name
+docker network create ecom-net
+
+# 2) Postgres for auth (throwaway; data lives only in the container for now)
+docker run -d --name postgres-auth --network ecom-net `
+  -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=auth `
+  postgres:16-alpine
+
+# 3) Build the auth-service image
+docker build -t auth-service ./services/auth-service
+
+# 4) docker run -d --name auth-service --network ecom-net -p 4001:4001 `
+  -e DB_HOST=postgres-auth `
+  -e DB_USER=postgres -e DB_PASSWORD=postgres -e DB_NAME=auth `
+  -e JWT_ACCESS_SECRET=test-access -e JWT_REFRESH_SECRET=test-refresh `
+  auth-service
