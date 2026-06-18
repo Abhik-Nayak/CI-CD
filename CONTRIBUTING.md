@@ -563,7 +563,7 @@ DB_USER=postgres
 DB_PASS=your_password
 DB_HOST=localhost
 DB_PORT=5432
-DB_NAME=TODO
+DB_NAME=todos
 PORT=5000
 ```
 

@@ -1,45 +1,26 @@
 services:
 
-  # ── PostgreSQL Database ────────────────────────────────────────────────────
-  db:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: todos
-    volumes:
-      # Named volume — data persists across docker compose down/up
-      - postgres_data:/var/lib/postgresql/data
-    networks:
-      - todo-network
-    # Healthcheck — other services wait until Postgres is actually ready
-    # depends_on alone only waits for the container to start, not for Postgres to accept connections
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
   # ── Express API ────────────────────────────────────────────────────────────
+  # Uses the LOCAL host Postgres (no db container).
   server:
     build: ./server
     ports:
       - "5000:5000"
     env_file:
-      - ./server/.env           # loads PORT, DB_USER, DB_PASS, DB_PORT, DB_NAME
+      - ./server/.env                    # loads PORT, DB_USER, DB_PASS, DB_PORT, DB_NAME, JWT_SECRET
     environment:
-      DB_HOST: db               # overrides DB_HOST from .env — "db" is the postgres service name above
+      DB_HOST: host.docker.internal      # overrides .env — points to host machine's Postgres
+    extra_hosts:
+      - "host.docker.internal:host-gateway"  # makes host.docker.internal resolve on Linux too
     networks:
       - todo-network
-    depends_on:
-      db:
-        condition: service_healthy  # waits until postgres healthcheck passes
 
   # ── React + nginx ──────────────────────────────────────────────────────────
   client:
     build: ./client
     ports:
       - "80:80"
+      - "8080:8080"
     networks:
       - todo-network
     depends_on:
@@ -49,9 +30,3 @@ services:
 networks:
   todo-network:
     driver: bridge
-
-# ── Named Volumes ──────────────────────────────────────────────────────────
-volumes:
-  postgres_data:
-    # Docker manages this volume — data survives container restarts and rebuilds
-    # To wipe all data: docker compose down -v

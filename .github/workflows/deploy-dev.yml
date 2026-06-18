@@ -10,9 +10,8 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
+      # No checkout needed — the deploy runs entirely on the EC2 host over SSH,
+      # not on the GitHub runner.
       - name: Deploy to EC2 via SSH
         uses: appleboy/ssh-action@v1
         with:
@@ -20,12 +19,19 @@ jobs:
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
+            set -e                         # abort the deploy on any failed command
             cd ~/CI-CD
 
             git checkout dev
             git pull origin dev
 
             echo "Building and restarting containers..."
-            docker compose -f docker-compose.prod.yml up --build -d
+            docker compose -f docker-compose.prod.yml up --build -d --remove-orphans
+
+            echo "Pruning old images to free disk..."
+            docker image prune -f
+
+            echo "Container status:"
+            docker compose -f docker-compose.prod.yml ps
 
             echo "Deployment complete!"

@@ -33,7 +33,10 @@ COPY --from=builder /app/dist /usr/share/nginx/html
 # Replace default nginx config with ours (SPA routing + API proxy)
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 
+# reverse proxy — serves React + forwards /api to Express
 EXPOSE 80
+# forward proxy — forwards browser requests to external destinations
+EXPOSE 8080
 
 # "daemon off" keeps nginx in the foreground so Docker can track the process
 CMD ["nginx", "-g", "daemon off;"]

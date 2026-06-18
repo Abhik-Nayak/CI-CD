@@ -11,14 +11,14 @@ async function createDb() {
 
   await client.connect();
   const res = await client.query(
-    "SELECT 1 FROM pg_database WHERE datname = 'TODO'"
+    "SELECT 1 FROM pg_database WHERE datname = 'todos'"
   );
 
   if (res.rows.length === 0) {
-    await client.query('CREATE DATABASE "TODO"');
-    console.log("Database TODO created");
+    await client.query('CREATE DATABASE "todos"');
+    console.log("Database todos created");
   } else {
-    console.log("Database TODO already exists");
+    console.log("Database todos already exists");
   }
 
   await client.end();
