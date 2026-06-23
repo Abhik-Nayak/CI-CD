@@ -1,6 +1,6 @@
 # EC2 Amazon Linux 2023 — Docker Deployment Setup Guide
 
-Fresh Amazon Linux 2023 EC2 → running client + server containers connected to host Postgres.
+Fresh Amazon Linux 2023 EC2 → running a microservices stack (client + gateway + auth-service + todo-service) connected to host Postgres.
 
 ---
 
@@ -9,11 +9,18 @@ Fresh Amazon Linux 2023 EC2 → running client + server containers connected to 
 ```
 EC2 Amazon Linux 2023
 ├── Postgres        (installed on host — not containerized)
-├── Docker
-│   ├── client container  (nginx:80  — serves React + proxies /api)
-│   └── server container  (Express:5000 — API only)
+│   ├── auth_db     (users)
+│   └── todo_db     (todos)
+├── Docker  (only the client publishes a port; everything else is internal)
+│   ├── client container        (nginx:80 — serves React + forwards /api → gateway)
+│   ├── gateway container        (nginx — routes /api/auth and /api/todos)
+│   ├── auth-service container   (Express:5002 — signup/login, owns auth_db)
+│   └── todo-service container   (Express:5001 — todo CRUD, owns todo_db)
 └── GitHub Actions  (SSH in → git pull → docker compose up --build -d)
 ```
+
+Request flow: `Browser → client:80 → gateway → auth-service / todo-service → Postgres`.
+Only port **80** is exposed to the internet; services and the gateway live on the internal Docker network.
 
 ---
 
@@ -27,7 +34,7 @@ EC2 Amazon Linux 2023
 6. [Install Docker Compose](#6-install-docker-compose)
 7. [Install & Configure PostgreSQL](#7-install--configure-postgresql)
 8. [Clone Repository](#8-clone-repository)
-9. [Create .env File](#9-create-env-file)
+9. [Create .env Files (one per service)](#9-create-env-files-one-per-service)
 10. [Configure Postgres for Docker Access](#10-configure-postgres-for-docker-access)
 11. [Run with Docker Compose](#11-run-with-docker-compose)
 12. [Verify Everything Works](#12-verify-everything-works)
@@ -169,16 +176,23 @@ ALTER USER postgres WITH PASSWORD 'yourpassword';
 \q
 ```
 
-### Create the database
+### Create the databases (one per service)
+
+Microservices use the **database-per-service** pattern — each service owns its own
+database. They're two separate databases on the **same** Postgres instance.
 
 ```bash
 sudo -u postgres psql
 ```
 
 ```sql
-CREATE DATABASE todos;
+CREATE DATABASE auth_db;   -- owned by auth-service (users table)
+CREATE DATABASE todo_db;   -- owned by todo-service (todos table)
 \q
 ```
+
+> The tables themselves are created automatically on first run — each service runs
+> its own `CREATE TABLE IF NOT EXISTS` at startup.
 
 ---
 
@@ -198,38 +212,73 @@ Verify files are there:
 
 ```bash
 ls
-# Should see: server/ client/ docker-compose.prod.yml etc.
+# Should see: services/ client/ docker-compose.prod.yml etc.
+
+ls services
+# Should see: auth-service/ todo-service/ gateway/
 ```
 
 ---
 
-## 9. Create .env File
+## 9. Create .env Files (one per service)
 
-The `.env` file is never in git — create it manually on the server.
+`.env` files are never in git — create them manually on the server. Each service
+has its own, pointing at its own database. **`JWT_SECRET` must be identical in both**
+(auth-service signs the token, todo-service verifies it).
+
+First, generate one strong secret to reuse in both files:
 
 ```bash
-nano ~/CI-CD/server/.env
+node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
+# copy the output — paste the SAME value as JWT_SECRET in both files below
 ```
 
-Paste:
+### auth-service
+
+```bash
+nano ~/CI-CD/services/auth-service/.env
+```
 
 ```
-PORT=5000
+PORT=5002
 
 DB_USER=postgres
 DB_PASS=yourpassword
 DB_HOST=host.docker.internal
 DB_PORT=5432
-DB_NAME=todos
+DB_NAME=auth_db
+
+JWT_SECRET=paste-the-generated-secret-here
 ```
 
-Save: `Ctrl+O` → `Enter` → `Ctrl+X`
-
-Verify:
+### todo-service
 
 ```bash
-cat ~/CI-CD/server/.env
+nano ~/CI-CD/services/todo-service/.env
 ```
+
+```
+PORT=5001
+
+DB_USER=postgres
+DB_PASS=yourpassword
+DB_HOST=host.docker.internal
+DB_PORT=5432
+DB_NAME=todo_db
+
+JWT_SECRET=paste-the-SAME-generated-secret-here
+```
+
+Save each: `Ctrl+O` → `Enter` → `Ctrl+X`
+
+Verify (the two `JWT_SECRET` values must match exactly):
+
+```bash
+cat ~/CI-CD/services/auth-service/.env
+cat ~/CI-CD/services/todo-service/.env
+```
+
+> The gateway has **no** `.env` — it only routes traffic and holds no secrets.
 
 ---
 
@@ -296,32 +345,41 @@ docker compose -f docker-compose.prod.yml up --build -d
 ```
 
 This command:
-- Builds `server` image from `server/Dockerfile`
-- Builds `client` image from `client/Dockerfile`
-- Starts both containers in the background
-- Creates shared `todo-network`
-- Injects env vars from `server/.env`
+- Builds 4 images: `auth-service`, `todo-service`, `gateway`, `client`
+- Starts all 4 containers in the background
+- Creates shared `todo-network` (containers find each other by service name via Docker DNS)
+- Injects env vars from each service's `.env`
+- Publishes only port **80** (the client) to the host
 
 ---
 
 ## 12. Verify Everything Works
 
 ```bash
-# Check both containers are running
+# All 4 containers should be running
 docker compose -f docker-compose.prod.yml ps
 
-# Server logs — should show "Database table ready" + "Server running on port 5000"
-docker compose -f docker-compose.prod.yml logs server
+# Service logs — should show "<db> tables ready" + "<service> running on port ..."
+docker compose -f docker-compose.prod.yml logs auth-service
+docker compose -f docker-compose.prod.yml logs todo-service
 
-# Client logs
+# Gateway + client logs
+docker compose -f docker-compose.prod.yml logs gateway
 docker compose -f docker-compose.prod.yml logs client
 
-# Test API directly
-curl http://localhost:5000/api/health
-
-# Test nginx
+# Test the SPA loads
 curl http://localhost
+
+# Test the full chain end-to-end (browser → client → gateway → auth-service).
+# Expect a JSON error like {"error":"Invalid credentials"} — that proves routing
+# all the way to the service works.
+curl -X POST http://localhost/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"nobody@test.com","password":"wrongpass"}'
 ```
+
+> Services and the gateway are NOT exposed to the host — you can only reach them
+> through `http://localhost` (the client on port 80). That's intentional.
 
 Open in browser:
 
@@ -337,12 +395,12 @@ In AWS Console → EC2 → Security Groups → Inbound Rules:
 
 | Type | Port | Source | Why |
 |---|---|---|---|
-| HTTP | 80 | 0.0.0.0/0 | nginx serves the app |
+| HTTP | 80 | 0.0.0.0/0 | client nginx serves the app — the only public entry |
 | SSH | 22 | Your IP | SSH access |
-| Custom TCP | 5000 | Your IP only | Direct API testing (optional) |
 
-> Port 5000 should NOT be open to `0.0.0.0/0` — all traffic should go through nginx on port 80.
-> Port 5432 (Postgres) should never be open publicly.
+> Only port **80** is open. The service ports (5001/5002), the gateway, and Postgres
+> (5432) are never published to the host or the internet — all traffic flows through
+> the client on port 80, then the gateway, then to the services internally.
 
 ---
 
@@ -355,8 +413,8 @@ docker compose -f docker-compose.prod.yml ps
 # Live logs from all containers
 docker compose -f docker-compose.prod.yml logs -f
 
-# Live logs from one container
-docker compose -f docker-compose.prod.yml logs -f server
+# Live logs from one container (auth-service | todo-service | gateway | client)
+docker compose -f docker-compose.prod.yml logs -f auth-service
 
 # Restart all containers
 docker compose -f docker-compose.prod.yml restart

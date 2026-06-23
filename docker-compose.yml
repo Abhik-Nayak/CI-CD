@@ -2,12 +2,11 @@ services:
 
   # ── Auth microservice ───────────────────────────────────────────────────────
   # Owns auth_db (users). Signs JWTs. Uses LOCAL host Postgres (no db container).
+  # Not exposed to the host — only the gateway can reach it (internal network).
   auth-service:
-    build: ./auth-service
-    ports:
-      - "5002:5002"                       # exposed for direct local testing/debug
+    build: ./services/auth-service
     env_file:
-      - ./auth-service/.env               # PORT, DB_*, JWT_SECRET
+      - ./services/auth-service/.env      # PORT, DB_*, JWT_SECRET
     environment:
       DB_HOST: host.docker.internal       # overrides .env — points to host Postgres
     extra_hosts:
@@ -18,11 +17,9 @@ services:
   # ── Todo microservice ───────────────────────────────────────────────────────
   # Owns todo_db (todos). Verifies JWTs with the SAME JWT_SECRET as auth-service.
   todo-service:
-    build: ./todo-service
-    ports:
-      - "5001:5001"                       # exposed for direct local testing/debug
+    build: ./services/todo-service
     env_file:
-      - ./todo-service/.env
+      - ./services/todo-service/.env
     environment:
       DB_HOST: host.docker.internal
     extra_hosts:
@@ -30,7 +27,19 @@ services:
     networks:
       - todo-network
 
-  # ── React + nginx (API gateway) ──────────────────────────────────────────────
+  # ── API Gateway ──────────────────────────────────────────────────────────────
+  # The single backend entry point. Routes /api/* to the right service.
+  # Clients never talk to the services directly — only to the gateway.
+  gateway:
+    build: ./services/gateway
+    networks:
+      - todo-network
+    depends_on:
+      - auth-service
+      - todo-service
+
+  # ── React + nginx (static SPA) ────────────────────────────────────────────────
+  # Serves the built React app and forwards /api → gateway.
   client:
     build: ./client
     ports:
@@ -39,8 +48,7 @@ services:
     networks:
       - todo-network
     depends_on:
-      - auth-service
-      - todo-service
+      - gateway
 
 # ── Shared Network ─────────────────────────────────────────────────────────
 networks:

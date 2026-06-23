@@ -2,9 +2,9 @@ services:
 
   # ── Auth microservice ───────────────────────────────────────────────────────
   auth-service:
-    build: ./auth-service
+    build: ./services/auth-service
     env_file:
-      - ./auth-service/.env
+      - ./services/auth-service/.env
     environment:
       DB_HOST: host.docker.internal       # EC2 host where Postgres runs
     extra_hosts:
@@ -15,9 +15,9 @@ services:
 
   # ── Todo microservice ───────────────────────────────────────────────────────
   todo-service:
-    build: ./todo-service
+    build: ./services/todo-service
     env_file:
-      - ./todo-service/.env
+      - ./services/todo-service/.env
     environment:
       DB_HOST: host.docker.internal
     extra_hosts:
@@ -26,8 +26,19 @@ services:
     networks:
       - todo-network
 
-  # ── React + nginx (API gateway) ──────────────────────────────────────────────
-  # In prod, services are NOT port-exposed to the host — only the gateway is.
+  # ── API Gateway ──────────────────────────────────────────────────────────────
+  # Single backend entry point. Not host-exposed — only the client reaches it.
+  gateway:
+    build: ./services/gateway
+    restart: unless-stopped
+    networks:
+      - todo-network
+    depends_on:
+      - auth-service
+      - todo-service
+
+  # ── React + nginx (static SPA) ────────────────────────────────────────────────
+  # The ONLY host-exposed container. Serves the SPA and forwards /api → gateway.
   client:
     build: ./client
     ports:
@@ -36,8 +47,7 @@ services:
     networks:
       - todo-network
     depends_on:
-      - auth-service
-      - todo-service
+      - gateway
 
 networks:
   todo-network:

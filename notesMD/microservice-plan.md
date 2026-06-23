@@ -6,22 +6,36 @@
 
 ---
 
-## Target architecture
+## Target architecture (dedicated gateway tier)
 
 ```
 Browser
-  │
+  │  :80
   ▼
-client (nginx gateway :80)
-  ├── /api/auth   → auth-service:5002
-  └── /api/todos  → todo-service:5001
-                        │            │
-                        ▼            ▼
-                   auth_db        todo_db      (2 databases on the same local Postgres)
-                   (users)        (todos)
+client (nginx) ── serves React static, forwards /api ──┐
+                                                        ▼
+                                          gateway (nginx)  ← single backend entry
+                                            ├── /api/auth  → auth-service:5002
+                                            └── /api/todos → todo-service:5001
+                                                   │              │
+                                                   ▼              ▼
+                                                auth_db        todo_db   (2 DBs, one local Postgres)
+                                                (users)        (todos)
 ```
 
-Database-per-service is applied **logically**: two separate databases on one Postgres, not new servers.
+Folder layout:
+```
+services/
+├── gateway/        nginx — routes /api/* to services (the gateway tier)
+├── auth-service/
+└── todo-service/
+client/             React + nginx (static only; forwards /api → gateway)
+```
+
+- The **client** knows only one backend: the gateway. It has no idea how many services exist.
+- The **gateway** is the only thing that knows service addresses; services are never exposed to clients.
+- Database-per-service is applied **logically**: two separate databases on one Postgres, not new servers.
+- In bigger systems the gateway role is played by Kong / Traefik / AWS API Gateway — same job, more features.
 
 ---
 
@@ -61,6 +75,34 @@ Each service gets its own `Dockerfile`, `db.js`, `package.json`, `.env`.
 
 ### 7. CI/CD
 - No change needed — same `docker compose up --build` deploy.
+
+---
+
+## Next: Resilience — handle a service failing in prod
+
+Scenario: app is live, todo-service is up but **auth-service fails**.
+
+What happens already (thanks to decoupling): todo-service verifies the JWT locally
+(no call to auth-service), so **logged-in users keep using todos**. Only NEW
+login/signup returns 502. Blast radius is small by design.
+
+Execution plan, ordered by value for the current single-EC2 + compose setup:
+
+- [x] **Layer 1 — Auto-restart** — `restart: unless-stopped` already set in `docker-compose.prod.yml`.
+- [ ] **Layer 2 — Health checks** — add `HEALTHCHECK` to each service so Docker restarts on *actual* breakage (frozen / DB unreachable), not just process death. Tests the existing `/api/health` endpoint.
+  ```yaml
+  healthcheck:
+    test: ["CMD", "wget", "-qO-", "http://localhost:5002/api/health"]
+    interval: 30s
+    timeout: 5s
+    retries: 3
+    start_period: 10s
+  ```
+- [ ] **Layer 3 — Graceful failure at the gateway + UI** — add `proxy_connect_timeout` / `proxy_read_timeout` in the gateway so a slow/dead service fails fast; show a friendly "login temporarily unavailable" in React instead of a raw 502.
+- [ ] **Layer 4 — Redundancy (true HA)** — multiple replicas of each service so one dying still leaves others serving. NOT possible with single-EC2 compose → needs an orchestrator (**ECS / Kubernetes**) across multiple nodes. This is the natural next learning step after Docker.
+- [ ] **Layer 5 — Monitoring & alerts** — poll `/api/health` (UptimeRobot / CloudWatch / Prometheus) and alert when a service is unhealthy.
+
+Priority now: **Layers 2 + 3 + 5** (doable on current setup). Layer 4 = future, with an orchestrator.
 
 ---
 
