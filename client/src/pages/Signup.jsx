@@ -8,7 +8,7 @@ export default function Signup() {
   const [confirm, setConfirm] = useState("");
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
-  const { login } = useAuth();
+  const { signUp } = useAuth();
   const navigate = useNavigate();
 
   const handleSubmit = async (e) => {
@@ -20,20 +20,10 @@ export default function Signup() {
     }
     setLoading(true);
     try {
-      const res = await fetch("/api/auth/signup", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.error || "Signup failed");
-        return;
-      }
-      login(data.token, data.user);
+      await signUp(email, password);
       navigate("/");
-    } catch {
-      setError("Network error. Please try again.");
+    } catch (err) {
+      setError(err.message || "Signup failed");
     } finally {
       setLoading(false);
     }

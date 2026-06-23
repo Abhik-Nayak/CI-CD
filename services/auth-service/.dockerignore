@@ -1,0 +1,10 @@
+# Never send node_modules into the build context.
+node_modules
+
+# No secrets in the image — inject these at runtime instead.
+.env
+.env.*
+
+# Not needed inside the container
+*.log
+.git

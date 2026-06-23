@@ -6,15 +6,12 @@ const helmet = require("helmet");
 const rateLimit = require("express-rate-limit");
 const pool = require("./db");
 const todoRoutes = require("./routes/todos");
-const authRoutes = require("./routes/auth");
 const authMiddleware = require("./middleware/auth");
 
 const app = express();
 const PORT = process.env.PORT;
 
-// One proxy (nginx) sits in front — trust its X-Forwarded-For so
-// express-rate-limit can identify clients by real IP. Use 1, not true,
-// so the header can't be spoofed to bypass rate limiting.
+// nginx gateway sits in front — trust its X-Forwarded-For (value 1, not true).
 app.set("trust proxy", 1);
 
 app.use(compression());
@@ -31,7 +28,6 @@ const apiLimiter = rateLimit({
 
 app.use("/api", apiLimiter);
 
-app.use("/api/auth", authRoutes);
 app.use("/api/todos", authMiddleware, todoRoutes);
 
 app.get("/api/health", async (req, res) => {
@@ -49,6 +45,7 @@ app.get("/api/health", async (req, res) => {
   }
 
   res.json({
+    service: "todo-service",
     status: dbStatus === "healthy" ? "healthy" : "degraded",
     uptime: `${Math.floor(uptime)}s`,
     timestamp: new Date().toISOString(),
@@ -66,37 +63,28 @@ app.get("/api/health", async (req, res) => {
 });
 
 async function start() {
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS users (
-      id SERIAL PRIMARY KEY,
-      email VARCHAR(255) UNIQUE NOT NULL,
-      password_hash VARCHAR(255) NOT NULL,
-      created_at TIMESTAMP DEFAULT NOW()
-    )
-  `);
-
+  // todo_db owns the todos table only.
+  // user_id is a PLAIN column — NO "REFERENCES users(id)" — because the users
+  // table lives in auth_db, a different database. We cannot foreign-key across
+  // databases. The value is trusted from the verified JWT (see middleware/auth.js).
   await pool.query(`
     CREATE TABLE IF NOT EXISTS todos (
       id SERIAL PRIMARY KEY,
       title VARCHAR(255) NOT NULL,
       completed BOOLEAN DEFAULT false,
       created_at TIMESTAMP DEFAULT NOW(),
-      user_id INTEGER REFERENCES users(id) ON DELETE CASCADE
+      user_id INTEGER NOT NULL
     )
   `);
 
-  await pool.query(`
-    ALTER TABLE todos ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id) ON DELETE CASCADE
-  `);
-
-  console.log("Database tables ready");
+  console.log("todo_db tables ready");
 
   app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+    console.log(`todo-service running on port ${PORT}`);
   });
 }
 
 start().catch((err) => {
-  console.error("Failed to start server:", err);
+  console.error("Failed to start todo-service:", err);
   process.exit(1);
 });

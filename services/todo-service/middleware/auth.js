@@ -1,5 +1,9 @@
 const jwt = require("jsonwebtoken");
 
+// todo-service does NOT call auth-service to validate a user.
+// It trusts the JWT signed by auth-service (same JWT_SECRET) and reads
+// the user id straight from the verified token. This is what keeps the
+// two services decoupled — no cross-service DB lookup, no network call.
 module.exports = (req, res, next) => {
   const auth = req.headers.authorization;
   if (!auth || !auth.startsWith("Bearer ")) {

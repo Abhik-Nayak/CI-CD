@@ -1,12 +1,11 @@
 {
-  "name": "todo-server",
+  "name": "todo-service",
   "version": "1.0.0",
   "scripts": {
     "start": "node index.js",
     "dev": "nodemon index.js"
   },
   "dependencies": {
-    "bcryptjs": "^3.0.3",
     "compression": "^1.8.1",
     "cors": "^2.8.5",
     "dotenv": "^17.4.2",
