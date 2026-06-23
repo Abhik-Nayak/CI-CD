@@ -3,41 +3,33 @@ import { useNavigate } from "react-router-dom";
 import TodoForm from "../components/TodoForm";
 import TodoList from "../components/TodoList";
 import { useAuth } from "../context/AuthContext";
-
-const API_URL = import.meta.env.VITE_API_URL;
+import { todosApi } from "../api/todos";
 
 export default function Todos() {
   const [todos, setTodos] = useState([]);
   const [editingTodo, setEditingTodo] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const { token, user, logout } = useAuth();
+  const { user, logout } = useAuth();
   const navigate = useNavigate();
-
-  const authHeaders = {
-    "Content-Type": "application/json",
-    Authorization: `Bearer ${token}`,
-  };
 
   const handleLogout = () => {
     logout();
     navigate("/login");
   };
 
+  // On 401 the api client logs the user out (via AuthContext), which redirects
+  // to /login — so we don't surface that as an error here.
+  const showError = (err) => {
+    if (err.status !== 401) setError(err.message);
+  };
+
   const fetchTodos = async () => {
     try {
       setError(null);
-      const res = await fetch(API_URL, { headers: { Authorization: `Bearer ${token}` } });
-      if (res.status === 401) {
-        logout();
-        navigate("/login");
-        return;
-      }
-      if (!res.ok) throw new Error("Failed to load todos");
-      const data = await res.json();
-      setTodos(data);
+      setTodos(await todosApi.list());
     } catch (err) {
-      setError(err.message);
+      showError(err);
     } finally {
       setLoading(false);
     }
@@ -50,47 +42,31 @@ export default function Todos() {
   const addTodo = async (title) => {
     try {
       setError(null);
-      const res = await fetch(API_URL, {
-        method: "POST",
-        headers: authHeaders,
-        body: JSON.stringify({ title }),
-      });
-      if (!res.ok) throw new Error("Failed to add todo");
-      const newTodo = await res.json();
+      const newTodo = await todosApi.create(title);
       setTodos((prev) => [newTodo, ...prev]);
     } catch (err) {
-      setError(err.message);
+      showError(err);
     }
   };
 
   const updateTodo = async (id, updates) => {
     try {
       setError(null);
-      const res = await fetch(`${API_URL}/${id}`, {
-        method: "PUT",
-        headers: authHeaders,
-        body: JSON.stringify(updates),
-      });
-      if (!res.ok) throw new Error("Failed to update todo");
-      const updated = await res.json();
+      const updated = await todosApi.update(id, updates);
       setTodos((prev) => prev.map((t) => (t.id === id ? updated : t)));
       setEditingTodo(null);
     } catch (err) {
-      setError(err.message);
+      showError(err);
     }
   };
 
   const deleteTodo = async (id) => {
     try {
       setError(null);
-      const res = await fetch(`${API_URL}/${id}`, {
-        method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!res.ok) throw new Error("Failed to delete todo");
+      await todosApi.remove(id);
       setTodos((prev) => prev.filter((t) => t.id !== id));
     } catch (err) {
-      setError(err.message);
+      showError(err);
     }
   };
 

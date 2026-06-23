@@ -1,21 +1,33 @@
 services:
 
-  # ── Express API ────────────────────────────────────────────────────────────
-  server:
-    build: ./server
-    ports:
-      - "5000:5000"
+  # ── Auth microservice ───────────────────────────────────────────────────────
+  auth-service:
+    build: ./auth-service
     env_file:
-      - ./server/.env
+      - ./auth-service/.env
     environment:
-      DB_HOST: host.docker.internal     # points to EC2 host where Postgres is running
+      DB_HOST: host.docker.internal       # EC2 host where Postgres runs
     extra_hosts:
-      - "host.docker.internal:host-gateway"   # Linux needs this — Docker Desktop handles it automatically on Windows/Mac
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
     networks:
       - todo-network
 
-  # ── React + nginx ──────────────────────────────────────────────────────────
+  # ── Todo microservice ───────────────────────────────────────────────────────
+  todo-service:
+    build: ./todo-service
+    env_file:
+      - ./todo-service/.env
+    environment:
+      DB_HOST: host.docker.internal
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+    networks:
+      - todo-network
+
+  # ── React + nginx (API gateway) ──────────────────────────────────────────────
+  # In prod, services are NOT port-exposed to the host — only the gateway is.
   client:
     build: ./client
     ports:
@@ -24,7 +36,8 @@ services:
     networks:
       - todo-network
     depends_on:
-      - server
+      - auth-service
+      - todo-service
 
 networks:
   todo-network:

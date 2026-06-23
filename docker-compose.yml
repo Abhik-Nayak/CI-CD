@@ -1,21 +1,36 @@
 services:
 
-  # ── Express API ────────────────────────────────────────────────────────────
-  # Uses the LOCAL host Postgres (no db container).
-  server:
-    build: ./server
+  # ── Auth microservice ───────────────────────────────────────────────────────
+  # Owns auth_db (users). Signs JWTs. Uses LOCAL host Postgres (no db container).
+  auth-service:
+    build: ./auth-service
     ports:
-      - "5000:5000"
+      - "5002:5002"                       # exposed for direct local testing/debug
     env_file:
-      - ./server/.env                    # loads PORT, DB_USER, DB_PASS, DB_PORT, DB_NAME, JWT_SECRET
+      - ./auth-service/.env               # PORT, DB_*, JWT_SECRET
     environment:
-      DB_HOST: host.docker.internal      # overrides .env — points to host machine's Postgres
+      DB_HOST: host.docker.internal       # overrides .env — points to host Postgres
     extra_hosts:
-      - "host.docker.internal:host-gateway"  # makes host.docker.internal resolve on Linux too
+      - "host.docker.internal:host-gateway"
     networks:
       - todo-network
 
-  # ── React + nginx ──────────────────────────────────────────────────────────
+  # ── Todo microservice ───────────────────────────────────────────────────────
+  # Owns todo_db (todos). Verifies JWTs with the SAME JWT_SECRET as auth-service.
+  todo-service:
+    build: ./todo-service
+    ports:
+      - "5001:5001"                       # exposed for direct local testing/debug
+    env_file:
+      - ./todo-service/.env
+    environment:
+      DB_HOST: host.docker.internal
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - todo-network
+
+  # ── React + nginx (API gateway) ──────────────────────────────────────────────
   client:
     build: ./client
     ports:
@@ -24,7 +39,8 @@ services:
     networks:
       - todo-network
     depends_on:
-      - server
+      - auth-service
+      - todo-service
 
 # ── Shared Network ─────────────────────────────────────────────────────────
 networks:
