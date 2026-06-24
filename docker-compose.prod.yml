@@ -1,21 +1,44 @@
 services:
 
-  # ── Express API ────────────────────────────────────────────────────────────
-  server:
-    build: ./server
-    ports:
-      - "5000:5000"
+  # ── Auth microservice ───────────────────────────────────────────────────────
+  auth-service:
+    build: ./services/auth-service
     env_file:
-      - ./server/.env
+      - ./services/auth-service/.env
     environment:
-      DB_HOST: host.docker.internal     # points to EC2 host where Postgres is running
+      DB_HOST: host.docker.internal       # EC2 host where Postgres runs
     extra_hosts:
-      - "host.docker.internal:host-gateway"   # Linux needs this — Docker Desktop handles it automatically on Windows/Mac
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
     networks:
       - todo-network
 
-  # ── React + nginx ──────────────────────────────────────────────────────────
+  # ── Todo microservice ───────────────────────────────────────────────────────
+  todo-service:
+    build: ./services/todo-service
+    env_file:
+      - ./services/todo-service/.env
+    environment:
+      DB_HOST: host.docker.internal
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+    networks:
+      - todo-network
+
+  # ── API Gateway ──────────────────────────────────────────────────────────────
+  # Single backend entry point. Not host-exposed — only the client reaches it.
+  gateway:
+    build: ./services/gateway
+    restart: unless-stopped
+    networks:
+      - todo-network
+    depends_on:
+      - auth-service
+      - todo-service
+
+  # ── React + nginx (static SPA) ────────────────────────────────────────────────
+  # The ONLY host-exposed container. Serves the SPA and forwards /api → gateway.
   client:
     build: ./client
     ports:
@@ -24,7 +47,7 @@ services:
     networks:
       - todo-network
     depends_on:
-      - server
+      - gateway
 
 networks:
   todo-network:
