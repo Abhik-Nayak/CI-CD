@@ -11,9 +11,11 @@ module.exports = (req, res, next) => {
   }
   const token = auth.split(" ")[1];
   try {
+    console.log("Verifying JWT token:", jwt.verify(token, process.env.JWT_SECRET));
     req.user = jwt.verify(token, process.env.JWT_SECRET);
     next();
-  } catch {
+  } catch (error) {
+    console.error("JWT verification error:", error);
     res.status(401).json({ error: "Invalid or expired token" });
   }
 };

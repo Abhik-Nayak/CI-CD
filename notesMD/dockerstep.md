@@ -56,78 +56,96 @@ docker volume prune               # remove unused volumes
 
 ---
 
-# Manual Docker Run (No Compose) — Local Postgres
+# Manual Docker Run (No Compose) — Microservices
 
-**Prereqs:** Docker Desktop running, local Postgres on `5432` with `todos` DB, you're in `C:\GitProjects\CI-CD`.
+**Prereqs:** Docker Desktop running, you're in `C:\GitProjects\CI-CD`, and each service's `.env` points at the **Aurora PostgreSQL cluster** (`DB_HOST`, `DB_SSL=true`). There is **no local Postgres and no DB container** — both services connect to the shared Aurora cluster.
 
-## Server
+**Architecture (4 containers):**
 
-```powershell
-# 1. Build image
-docker build -t todo-server ./server
-
-# 2. Run container
-docker run -d --name server -p 5000:5000 --env-file ./server/.env -e DB_HOST=host.docker.internal todo-server
-
-# 3. Check
-docker logs -f server
-curl http://localhost:5000/api/health
+```
+Browser :80
+  └─ client (nginx)        serves React SPA, forwards /api → gateway
+       └─ gateway (nginx)  routes by path prefix:
+            ├─ /api/auth  → auth-service:5002   ┐ both use the SAME
+            └─ /api/todos → todo-service:5001   ┘ Aurora database (devdb)
 ```
 
-## Client (full stack)
+Both services connect to a **single shared database** (`devdb`) on the Aurora cluster — auth-service owns the `users` table, todo-service owns the `todos` table. Only **client** is published to the host (port 80); gateway, auth-service, todo-service are internal-only.
+
+## 1. Create the network
 
 ```powershell
-# 4. Create network
-docker network create todo-net
+docker network create todo-network
+```
 
-# 5. Add server to it
-docker network connect todo-net server
+## 2. Build the four images
 
-# 6. Build client
-docker build -t todo-client ./client
+```powershell
+docker build -t auth-service ./services/auth-service
+docker build -t todo-service ./services/todo-service
+docker build -t gateway ./services/gateway
+docker build -t client ./client
+```
 
-# 7. Run client on same network
-docker run -d --name client --network todo-net -p 80:80 -p 8080:8080 todo-client
+## 3. Run the containers (services first, client last)
+
+```powershell
+docker run -d --name auth-service --network todo-network --env-file ./services/auth-service/.env auth-service
+
+docker run -d --name todo-service --network todo-network --env-file ./services/todo-service/.env todo-service
+
+docker run -d --name gateway --network todo-network gateway
+
+docker run -d --name client --network todo-network -p 80:80 client
 ```
 
 Open **http://localhost**
 
-## Why the overrides
+## 4. Check
 
-- `--env-file ./server/.env` → `docker run` does NOT auto-load `.env` (compose did). Without it: `Missing required environment variables`.
-- `-e DB_HOST=host.docker.internal` → inside a container `localhost` = the container, not your PC. This reaches host Postgres.
-- `--network todo-net` (both containers) → nginx needs to resolve `server` (`proxy_pass http://server:5000`). Default bridge has no DNS.
+```powershell
+docker logs -f client
+# internal reachability (nginx:alpine has wget, not curl):
+docker exec gateway wget -qO- http://auth-service:5002/api/health
+docker exec gateway wget -qO- http://todo-service:5001/api/health
+# end-to-end through the front door:
+curl http://localhost/api/health
+```
+
+## Why the flags
+
+- `--name X` → sets the container's **DNS name**. `gateway/nginx.conf` calls `http://auth-service:5002` and `http://todo-service:5001`, and `client/nginx.conf` calls `http://gateway`, so the names must match exactly.
+- `--network todo-network` (all containers) → default bridge has no DNS; a user-defined network lets containers resolve each other by name.
+- `--env-file ./services/<svc>/.env` → `docker run` does NOT auto-load `.env` (compose did). Without it: `Missing required environment variables`. `DB_HOST` inside points at Aurora, so **no** `host.docker.internal` override is needed.
+- `-p 80:80` → only the client is host-exposed; the rest stay internal.
 
 ## Volumes
 
-**Why needed:** A container's filesystem is temporary — `docker rm` deletes everything inside it. A volume stores data *outside* the container so it survives restarts, rebuilds, and removal.
-
-**When needed:** Only when something *inside* a container holds data you must keep — e.g. a **Postgres container** (`-v pg_data:/var/lib/postgresql/data`), uploaded files, etc. A volume is created only if you ask for one (`-v name:/path` or compose `volumes:`).
-
-**In this project: NOT needed.** Your data lives in your **local host Postgres** (outside Docker). The `server` and `client` containers are stateless. So no volume — host Postgres handles persistence.
-
-> If you later switch to a **db container**, then add a named volume so the data survives `docker rm`.
+**Not needed in this project.** All data lives in the **Aurora cluster** (outside Docker), so every container is stateless. Add a named volume only if you later run a **Postgres container** (`-v pg_data:/var/lib/postgresql/data`) or store uploads inside a container.
 
 ## Cleanup
 
 ```powershell
-docker rm -f server client
-docker network rm todo-net
+docker rm -f client gateway todo-service auth-service
+docker network rm todo-network
 ```
 
 ---
 
 # Docker Compose (the easy way)
 
-Compose does all the manual steps above (build, network, run, env) from one file: `docker-compose.yml`. It also uses your **local host Postgres** (`DB_HOST: host.docker.internal`, no db container).
+Compose does all the manual steps above (build, network, run, env) from one file. Services connect to the **Aurora cluster** via each service's `env_file` — no DB container, no volumes.
 
 ```powershell
-# Build + start everything in background
+# dev — build + start everything in background
 docker compose up -d --build
 
+# prod
+docker compose -f docker-compose.prod.yml up -d --build
+
 # Follow logs
-docker compose logs -f          # all services
-docker compose logs -f server   # one service
+docker compose logs -f                # all services
+docker compose logs -f auth-service   # one service
 
 # Status
 docker compose ps
@@ -140,9 +158,10 @@ docker compose down
 
 | Manual | Compose |
 |--------|---------|
-| `docker build` ×2 | `--build` |
-| `docker network create` + `connect` | auto-created |
-| `docker run` ×2 with flags | defined in YAML |
-| pass `--env-file`, `-e DB_HOST` by hand | `env_file` + `environment` in YAML |
+| `docker build` ×4 | `--build` |
+| `docker network create` | auto-created |
+| `docker run` ×4 with flags | defined in YAML |
+| pass `--env-file` by hand | `env_file` in YAML |
+| set `--name` for DNS | service name = DNS name |
 
-> Network and naming are automatic in compose, so nginx resolves `server` without manual `network connect`.
+> Network and naming are automatic in compose, so nginx resolves `auth-service` / `todo-service` / `gateway` without manual `--name` and `--network`.
