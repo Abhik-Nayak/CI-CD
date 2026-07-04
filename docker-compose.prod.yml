@@ -4,11 +4,7 @@ services:
   auth-service:
     build: ./services/auth-service
     env_file:
-      - ./services/auth-service/.env
-    environment:
-      DB_HOST: host.docker.internal       # EC2 host where Postgres runs
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+      - ./services/auth-service/.env      # DB_* point at the Aurora cluster
     restart: unless-stopped
     networks:
       - todo-network
@@ -18,10 +14,6 @@ services:
     build: ./services/todo-service
     env_file:
       - ./services/todo-service/.env
-    environment:
-      DB_HOST: host.docker.internal
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     restart: unless-stopped
     networks:
       - todo-network

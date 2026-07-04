@@ -1,0 +1,176 @@
+/* ============================================================================
+ * theme.css — Single source of truth for the app's design language.
+ *
+ * THEME GUIDELINE
+ * ---------------
+ * Every component MUST style itself using the CSS custom properties (design
+ * tokens) declared here — never hard-code a color, spacing, radius, shadow,
+ * font size, or transition in App.css or a component. If you need a value that
+ * doesn't exist yet, ADD a token here first, then reference it. This keeps the
+ * whole UI consistent and makes light/dark theming and rebranding a one-file
+ * change.
+ *
+ * Token naming:
+ *   --color-*      semantic colors (surface, text, accent, states…)
+ *   --space-*      spacing scale (4px base rhythm)
+ *   --radius-*     corner rounding
+ *   --shadow-*     elevation
+ *   --font-*       typography (family, size, weight, line-height)
+ *   --transition-* motion
+ *   --z-*          stacking order
+ *
+ * Prefer SEMANTIC tokens (e.g. --color-accent, --color-danger) over raw
+ * palette values so dark mode and rebrands "just work".
+ * ==========================================================================*/
+
+:root {
+  /* ── Raw palette (rarely referenced directly — prefer semantic tokens) ── */
+  --palette-indigo-500: #4361ee;
+  --palette-indigo-600: #3a56d4;
+  --palette-indigo-700: #2f45b3;
+  --palette-violet-500: #7048e8;
+
+  /* ── Brand / accent ── */
+  --color-accent: var(--palette-indigo-500);
+  --color-accent-hover: var(--palette-indigo-600);
+  --color-accent-active: var(--palette-indigo-700);
+  --color-accent-contrast: #ffffff;
+  --color-accent-soft: rgba(67, 97, 238, 0.12); /* tints, focus rings */
+  --gradient-brand: linear-gradient(135deg, #4361ee 0%, #7048e8 100%);
+
+  /* ── Surfaces & background ── */
+  --color-bg: #eef1f8;               /* page background */
+  --color-bg-gradient: radial-gradient(
+    1200px 600px at 50% -10%,
+    #e3e9fb 0%,
+    #eef1f8 55%
+  );
+  --color-surface: #ffffff;          /* cards, list rows */
+  --color-surface-2: #f5f7fb;        /* insets, hover fills */
+  --color-border: #e2e6ef;
+  --color-border-strong: #cfd5e3;
+
+  /* ── Text ── */
+  --color-text: #1f2333;             /* primary */
+  --color-text-muted: #5b6478;       /* secondary */
+  --color-text-subtle: #98a0b3;      /* placeholders, disabled */
+  --color-text-on-accent: #ffffff;
+
+  /* ── Semantic state colors ── */
+  --color-danger: #e5484d;
+  --color-danger-hover: #cf3a3f;
+  --color-danger-soft: #fdecec;
+  --color-danger-text: #9b1c21;
+
+  --color-warning: #f5a524;
+  --color-warning-hover: #e0940f;
+  --color-warning-contrast: #3a2a00;
+
+  --color-success: #2fa56a;
+
+  --color-neutral: #6c7385;
+  --color-neutral-hover: #565d6e;
+
+  /* ── Spacing scale (4px base) ── */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+
+  /* ── Radius ── */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --radius-pill: 999px;
+
+  /* ── Elevation ── */
+  --shadow-sm: 0 1px 2px rgba(23, 31, 56, 0.06),
+    0 1px 3px rgba(23, 31, 56, 0.08);
+  --shadow-md: 0 4px 12px rgba(23, 31, 56, 0.08),
+    0 2px 4px rgba(23, 31, 56, 0.06);
+  --shadow-lg: 0 12px 32px rgba(23, 31, 56, 0.14);
+  --shadow-focus: 0 0 0 3px var(--color-accent-soft);
+
+  /* ── Typography ── */
+  --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+
+  --font-size-xs: 12px;
+  --font-size-sm: 13px;
+  --font-size-md: 15px;
+  --font-size-lg: 18px;
+  --font-size-xl: 22px;
+  --font-size-2xl: 28px;
+
+  --font-weight-normal: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+
+  --line-height-tight: 1.2;
+  --line-height-normal: 1.5;
+
+  /* ── Motion ── */
+  --transition-fast: 120ms ease;
+  --transition-base: 200ms ease;
+
+  /* ── Stacking ── */
+  --z-banner: 10;
+  --z-overlay: 100;
+
+  /* ── Layout ── */
+  --layout-max-width: 640px;
+}
+
+/* ── Dark theme ────────────────────────────────────────────────────────────
+ * Applied via [data-theme="dark"] on <html>. The initial value is set by an
+ * inline script in index.html (resolves saved choice or the OS preference
+ * before first paint) and thereafter toggled by ThemeContext. Only SEMANTIC
+ * tokens are overridden here; components never need to know. */
+:root[data-theme="dark"] {
+    --color-accent: #6684ff;
+    --color-accent-hover: #7d97ff;
+    --color-accent-active: #92a8ff;
+    --color-accent-soft: rgba(102, 132, 255, 0.18);
+    --gradient-brand: linear-gradient(135deg, #5b74ff 0%, #8b6bff 100%);
+
+    --color-bg: #0e1018;
+    --color-bg-gradient: radial-gradient(
+      1200px 600px at 50% -10%,
+      #191d2e 0%,
+      #0e1018 55%
+    );
+    --color-surface: #171a26;
+    --color-surface-2: #1f2333;
+    --color-border: #2a2f40;
+    --color-border-strong: #3a4152;
+
+    --color-text: #eceef5;
+    --color-text-muted: #a3abbf;
+    --color-text-subtle: #6b7386;
+    --color-text-on-accent: #0e1018;
+
+    --color-danger: #f26a6f;
+    --color-danger-hover: #f4838a;
+    --color-danger-soft: rgba(242, 106, 111, 0.14);
+    --color-danger-text: #f6b0b3;
+
+    --color-warning: #f5b642;
+    --color-warning-hover: #f7c766;
+    --color-warning-contrast: #2a1d00;
+
+    --color-success: #45c98a;
+
+    --color-neutral: #7b8296;
+    --color-neutral-hover: #929aae;
+
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.45);
+    --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.55);
+    --shadow-focus: 0 0 0 3px var(--color-accent-soft);
+}

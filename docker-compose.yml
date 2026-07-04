@@ -6,11 +6,7 @@ services:
   auth-service:
     build: ./services/auth-service
     env_file:
-      - ./services/auth-service/.env      # PORT, DB_*, JWT_SECRET
-    environment:
-      DB_HOST: host.docker.internal       # overrides .env — points to host Postgres
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+      - ./services/auth-service/.env      # PORT, DB_* (Aurora endpoint), JWT_SECRET
     networks:
       - todo-network
 
@@ -20,10 +16,6 @@ services:
     build: ./services/todo-service
     env_file:
       - ./services/todo-service/.env
-    environment:
-      DB_HOST: host.docker.internal
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     networks:
       - todo-network
 
@@ -44,7 +36,6 @@ services:
     build: ./client
     ports:
       - "80:80"
-      - "8080:8080"
     networks:
       - todo-network
     depends_on:
